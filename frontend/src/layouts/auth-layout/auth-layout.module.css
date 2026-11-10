@@ -1,0 +1,52 @@
+.authLayout {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-primary);
+  padding: var(--space-xl);
+}
+
+.authCard {
+  width: 100%;
+  max-width: 420px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.authHeader {
+  text-align: center;
+  margin-bottom: var(--space-2xl);
+}
+
+.authLogo {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-lg);
+}
+
+.authLogoText {
+  color: var(--color-text-inverse);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.authTitle {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.authSubtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}

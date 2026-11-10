@@ -1,0 +1,38 @@
+"""Auth module — Pydantic schemas for login, tokens, and user responses."""
+
+from __future__ import annotations
+
+import uuid
+
+from pydantic import BaseModel, EmailStr
+
+
+class LoginRequest(BaseModel):
+    """POST /api/v1/auth/login request body."""
+
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    """Response after successful login."""
+
+    message: str = "Login successful"
+    csrf_token: str
+    user: UserResponse
+
+
+class UserResponse(BaseModel):
+    """Public-facing user data."""
+
+    id: uuid.UUID
+    email: str
+    display_name: str
+    is_active: bool
+    avatar_url: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+# Resolve forward reference
+TokenResponse.model_rebuild()

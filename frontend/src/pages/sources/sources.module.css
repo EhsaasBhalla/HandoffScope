@@ -1,0 +1,300 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin-top: 2px;
+}
+
+.statusBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--color-accent-subtle);
+  border: 1px solid var(--color-border-accent);
+  color: var(--color-accent-text);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.spinIcon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2xl);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xl);
+  gap: var(--space-lg);
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+}
+
+.sourceLogo {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardHeaderInfo {
+  flex: 1;
+}
+
+.cardHeaderInfo h3 {
+  font-size: var(--text-lg);
+  margin-bottom: 2px;
+}
+
+.cardHeaderInfo p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.statusIndicator {
+  flex-shrink: 0;
+}
+
+.connectedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-supported);
+  background-color: var(--color-supported-bg);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+}
+
+.syntheticBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--color-accent-text);
+  background-color: var(--color-accent-subtle);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+}
+
+.cardBody {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-md);
+}
+
+.cardMetaRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-lg);
+}
+
+.metaLabel {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.metaValue {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  margin-top: 2px;
+}
+
+/* Upload zone */
+.uploadZone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.uploadDropArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-tertiary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  text-align: center;
+}
+
+.uploadDropArea:hover {
+  border-color: var(--color-accent);
+  background-color: var(--color-bg-hover);
+}
+
+.uploadIcon {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.uploadPrompt {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.uploadHint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.errorBox {
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-conflicting);
+  border-radius: var(--radius-md);
+  color: var(--color-conflicting);
+  font-size: var(--text-sm);
+}
+
+.docsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.subHeading {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.tableWrapper, .docsTableWrapper {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
+.docNameCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.boldCell {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.monoCell {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.dateCell {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.statusChip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+.statusChip.completed {
+  background-color: var(--color-supported-bg);
+  color: var(--color-supported);
+}
+
+.statusChip.pending {
+  background-color: var(--color-inferred-bg);
+  color: var(--color-inferred);
+}
+
+.statusChip.failed {
+  background-color: var(--color-conflicting-bg);
+  color: var(--color-conflicting);
+}
+
+.activeStatusBadge {
+  font-size: var(--text-xs);
+  color: var(--color-supported);
+  background-color: var(--color-supported-bg);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.importTriggerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.importTriggerBtn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.emptySources {
+  padding: var(--space-2xl);
+  text-align: center;
+  color: var(--color-text-muted);
+}

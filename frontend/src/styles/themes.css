@@ -1,0 +1,128 @@
+/* ─── Theme Definitions ──────────────────────────────────────
+   Dark = warm charcoal/graphite.  Light = warm paper/parchment.
+   Accent = muted brass/dark-gold.
+──────────────────────────────────────────────────────────── */
+
+/* ── Dark Theme (default) ─────────────────────────────────── */
+[data-theme='dark'] {
+  /* Backgrounds */
+  --color-bg-primary:    #1a1816;
+  --color-bg-secondary:  #22201d;
+  --color-bg-tertiary:   #2a2825;
+  --color-bg-elevated:   #302e2a;
+  --color-bg-hover:      #353330;
+  --color-bg-active:     #3d3b37;
+  --color-bg-input:      #252320;
+
+  /* Text */
+  --color-text-primary:   #e8e2d9;
+  --color-text-secondary: #b5ae9f;
+  --color-text-muted:     #7d7869;
+  --color-text-disabled:  #5a564e;
+  --color-text-inverse:   #1a1816;
+
+  /* Accent — muted brass/dark gold */
+  --color-accent:         #b8860b;
+  --color-accent-hover:   #cc9a1d;
+  --color-accent-active:  #a07508;
+  --color-accent-subtle:  rgba(184, 134, 11, 0.12);
+  --color-accent-text:    #d4a843;
+
+  /* Borders */
+  --color-border:         #3d3b37;
+  --color-border-subtle:  #2f2d29;
+  --color-border-strong:  #524f4a;
+  --color-border-accent:  rgba(184, 134, 11, 0.30);
+
+  /* Evidence State Indicators */
+  --color-supported:      #5a8a6a;
+  --color-supported-bg:   rgba(90, 138, 106, 0.12);
+  --color-inferred:       #8a7a4a;
+  --color-inferred-bg:    rgba(138, 122, 74, 0.12);
+  --color-conflicting:    #8a4a4a;
+  --color-conflicting-bg: rgba(138, 74, 74, 0.12);
+  --color-unknown:        #6a6a6a;
+  --color-unknown-bg:     rgba(106, 106, 106, 0.12);
+
+  /* Semantic Status */
+  --color-success:        #5a8a6a;
+  --color-success-bg:     rgba(90, 138, 106, 0.10);
+  --color-warning:        #b8860b;
+  --color-warning-bg:     rgba(184, 134, 11, 0.10);
+  --color-error:          #8a4a4a;
+  --color-error-bg:       rgba(138, 74, 74, 0.10);
+  --color-info:           #5a7a9a;
+  --color-info-bg:        rgba(90, 122, 154, 0.10);
+
+  /* Scrollbar */
+  --color-scrollbar:      #3d3b37;
+  --color-scrollbar-hover:#524f4a;
+
+  /* Code blocks */
+  --color-code-bg:        #1e1c19;
+  --color-code-border:    #2f2d29;
+
+  color-scheme: dark;
+}
+
+/* ── Light Theme ──────────────────────────────────────────── */
+[data-theme='light'] {
+  /* Backgrounds — warm paper/parchment */
+  --color-bg-primary:    #f5f0eb;
+  --color-bg-secondary:  #ece6df;
+  --color-bg-tertiary:   #e3ddd5;
+  --color-bg-elevated:   #ffffff;
+  --color-bg-hover:      #e8e2da;
+  --color-bg-active:     #ddd7ce;
+  --color-bg-input:      #ffffff;
+
+  /* Text */
+  --color-text-primary:   #2a2520;
+  --color-text-secondary: #5a5347;
+  --color-text-muted:     #8a8275;
+  --color-text-disabled:  #b5ae9f;
+  --color-text-inverse:   #f5f0eb;
+
+  /* Accent — deeper brass for contrast on light */
+  --color-accent:         #9a7209;
+  --color-accent-hover:   #7d5c06;
+  --color-accent-active:  #614804;
+  --color-accent-subtle:  rgba(154, 114, 9, 0.08);
+  --color-accent-text:    #7d5c06;
+
+  /* Borders */
+  --color-border:         #d5cfc6;
+  --color-border-subtle:  #e3ddd5;
+  --color-border-strong:  #b5ae9f;
+  --color-border-accent:  rgba(154, 114, 9, 0.25);
+
+  /* Evidence State Indicators */
+  --color-supported:      #3d7a4f;
+  --color-supported-bg:   rgba(61, 122, 79, 0.08);
+  --color-inferred:       #7a6a3a;
+  --color-inferred-bg:    rgba(122, 106, 58, 0.08);
+  --color-conflicting:    #9a3a3a;
+  --color-conflicting-bg: rgba(154, 58, 58, 0.08);
+  --color-unknown:        #7a7a7a;
+  --color-unknown-bg:     rgba(122, 122, 122, 0.08);
+
+  /* Semantic Status */
+  --color-success:        #3d7a4f;
+  --color-success-bg:     rgba(61, 122, 79, 0.06);
+  --color-warning:        #9a7209;
+  --color-warning-bg:     rgba(154, 114, 9, 0.06);
+  --color-error:          #9a3a3a;
+  --color-error-bg:       rgba(154, 58, 58, 0.06);
+  --color-info:           #3a6a9a;
+  --color-info-bg:        rgba(58, 106, 154, 0.06);
+
+  /* Scrollbar */
+  --color-scrollbar:      #d5cfc6;
+  --color-scrollbar-hover:#b5ae9f;
+
+  /* Code blocks */
+  --color-code-bg:        #ece6df;
+  --color-code-border:    #d5cfc6;
+
+  color-scheme: light;
+}

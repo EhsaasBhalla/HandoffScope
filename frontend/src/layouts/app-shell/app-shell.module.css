@@ -1,0 +1,36 @@
+.shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: var(--sidebar-width-expanded);
+  transition: margin-left var(--transition-normal);
+}
+
+.main.collapsed {
+  margin-left: var(--sidebar-width-collapsed);
+}
+
+.content {
+  flex: 1;
+  padding: var(--space-xl);
+  max-width: var(--content-max-width);
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Mobile: sidebar is overlay */
+@media (max-width: 768px) {
+  .main {
+    margin-left: 0;
+  }
+
+  .main.collapsed {
+    margin-left: 0;
+  }
+}

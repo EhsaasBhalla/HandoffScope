@@ -1,0 +1,1 @@
+"""HandoffScope backend application."""
