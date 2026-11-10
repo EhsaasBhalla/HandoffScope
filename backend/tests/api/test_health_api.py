@@ -12,3 +12,11 @@ def test_health_endpoint():
     data = response.json()
     assert data["status"] == "ok"
     assert data["app"] == "HandoffScope"
+
+
+def test_head_health_for_uptime_bots():
+    response = client.head("/health")
+    assert response.status_code == 200
+
+    root_resp = client.head("/")
+    assert root_resp.status_code == 200

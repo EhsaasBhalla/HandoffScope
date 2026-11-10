@@ -84,20 +84,20 @@ def create_app() -> FastAPI:
     setup_exception_handlers(app)
     app.include_router(api_router)
 
-    # ── Health, Root & Readiness ──────────────────────────────
+    # ── Health, Root & Readiness (Supports both GET and HEAD for Uptime Bots) ──
 
-    @app.get("/", tags=["System"])
+    @app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
     def root():
         """Root endpoint returning service status (ideal for uptime bots and monitors)."""
         return {"status": "ok", "app": APP_NAME, "version": VERSION, "message": "HandoffScope API is running"}
 
-    @app.get("/health", tags=["System"])
-    @app.get("/api/v1/health", tags=["System"])
+    @app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
+    @app.api_route("/api/v1/health", methods=["GET", "HEAD"], tags=["System"])
     def health():
         """Basic liveness check."""
         return {"status": "ok", "version": VERSION, "app": APP_NAME}
 
-    @app.get("/ready", tags=["System"])
+    @app.api_route("/ready", methods=["GET", "HEAD"], tags=["System"])
     def readiness():
         """Readiness check — verifies database connectivity."""
         try:
