@@ -206,8 +206,52 @@ def seed_demo_data(db: Session) -> None:
         db.add(pyd_source)
         logger.info("Connected pydantic/pydantic source to Pydantic project")
 
+    # ── Create Zulip testing project & source ─────────────────
+    zulip_proj = db.query(Project).filter(Project.slug == "zulip").first()
+    if not zulip_proj:
+        zulip_proj = Project(
+            workspace_id=workspace.id,
+            name="Zulip",
+            slug="zulip",
+            description="Zulip server and web application. Open-source team chat that helps teams stay productive and focused.",
+            repo_url="https://github.com/zulip/zulip",
+        )
+        db.add(zulip_proj)
+        db.flush()
+        logger.info("Created project: %s", zulip_proj.slug)
+
+    for u_data in DEMO_USERS:
+        user = users[u_data["email"]]
+        existing = (
+            db.query(ProjectMembership)
+            .filter(
+                ProjectMembership.user_id == user.id,
+                ProjectMembership.project_id == zulip_proj.id,
+            )
+            .first()
+        )
+        if not existing:
+            db.add(ProjectMembership(user_id=user.id, project_id=zulip_proj.id, role=u_data["proj_role"]))
+
+    zulip_source = db.query(ConnectedSource).filter(
+        ConnectedSource.project_id == zulip_proj.id,
+        ConnectedSource.name == "zulip/zulip",
+    ).first()
+    if not zulip_source:
+        zulip_source = ConnectedSource(
+            project_id=zulip_proj.id,
+            source_type=SourceType.GITHUB_REPO,
+            name="zulip/zulip",
+            external_id="zulip/zulip",
+            connection_status=ConnectionStatus.ACTIVE,
+            config={"owner": "zulip", "repo": "zulip"},
+            connected_by_id=users["maya.sharma@example.test"].id,
+        )
+        db.add(zulip_source)
+        logger.info("Connected zulip/zulip source to Zulip project")
+
     db.commit()
-    logger.info("Demo seed complete — %d users, 1 workspace, 2 projects", len(DEMO_USERS))
+    logger.info("Demo seed complete — %d users, 1 workspace, 3 projects", len(DEMO_USERS))
 
     # ── Seed synthetic fixture (Phase 4) ──────────────────────
     from app.seed.demo_data import seed_synthetic_fixture

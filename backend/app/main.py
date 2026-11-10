@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
     import app.modules.ingestion.models  # noqa: F401
     import app.modules.jobs.models  # noqa: F401
     import app.modules.documents.models  # noqa: F401
+    import app.modules.transfer_packs.models  # noqa: F401
+    import app.modules.questions.models  # noqa: F401
 
     try:
         Base.metadata.create_all(bind=engine)
