@@ -65,6 +65,29 @@ def run_import(job_id: str) -> None:
         job.started_at = datetime.now(timezone.utc)
         db.commit()
 
+        # Handle synthetic fixture sources (no external API calls needed)
+        from app.db.enums import SourceType
+        if source.source_type == SourceType.SYNTHETIC_FIXTURE:
+            count = (
+                db.query(SourceRecord)
+                .filter(SourceRecord.connected_source_id == source.id)
+                .count()
+            )
+            sync_run.status = SyncRunStatus.COMPLETED
+            sync_run.completed_at = datetime.now(timezone.utc)
+            sync_run.records_fetched = count
+            sync_run.records_created = 0
+            sync_run.records_updated = count
+            complete_job(db, job.id, result={
+                "records_fetched": count,
+                "records_created": 0,
+                "records_updated": count,
+                "message": f"Verified {count} synthetic records",
+            })
+            db.commit()
+            logger.info("Synthetic fixture source %s refreshed: %d records", source.id, count)
+            return
+
         # Get repo info from source config
         config = source.config or {}
         owner = config.get("owner", "")
@@ -75,6 +98,13 @@ def run_import(job_id: str) -> None:
             fail_job(db, job.id, error_message="Source config missing owner/repo")
             sync_run.status = SyncRunStatus.FAILED
             sync_run.error_message = "Missing owner/repo in config"
+            db.commit()
+            return
+
+        if not access_token:
+            fail_job(db, job.id, error_message="GitHub Access Token required for sync")
+            sync_run.status = SyncRunStatus.FAILED
+            sync_run.error_message = "GitHub Access Token required for sync"
             db.commit()
             return
 

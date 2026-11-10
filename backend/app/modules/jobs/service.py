@@ -55,8 +55,10 @@ def enqueue_job(
 
     # Enqueue to RQ if a task function path is specified
     if task_func:
+        enqueued_to_redis = False
         try:
             redis_conn = get_redis()
+            redis_conn.ping()
             q = Queue(queue_name, connection=redis_conn)
             q.enqueue(
                 task_func,
@@ -65,11 +67,36 @@ def enqueue_job(
                 result_ttl=86400,
             )
             logger.info("Enqueued job %s to queue %s", job.id, queue_name)
-        except Exception as exc:
-            logger.error("Failed to enqueue job %s: %s", job.id, exc)
-            job.status = JobStatus.FAILED
-            job.error_message = f"Failed to enqueue: {exc}"
-            db.flush()
+            enqueued_to_redis = True
+        except Exception as redis_exc:
+            logger.info(
+                "Redis queue unavailable (%s). Running job %s in local background thread.",
+                redis_exc,
+                job.id,
+            )
+
+        if not enqueued_to_redis:
+            # Fallback to local background thread for local development without Redis
+            try:
+                import importlib
+                import threading
+
+                module_name, func_name = task_func.rsplit(".", 1)
+                mod = importlib.import_module(module_name)
+                func = getattr(mod, func_name)
+
+                thread = threading.Thread(
+                    target=func,
+                    args=(str(job.id),),
+                    daemon=True,
+                )
+                thread.start()
+                logger.info("Executed job %s via fallback local thread", job.id)
+            except Exception as thread_exc:
+                logger.error("Failed to execute background job %s: %s", job.id, thread_exc)
+                job.status = JobStatus.FAILED
+                job.error_message = f"Failed to enqueue or execute: {thread_exc}"
+                db.flush()
 
     return job
 
