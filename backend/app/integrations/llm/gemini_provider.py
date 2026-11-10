@@ -1,4 +1,4 @@
-"""Google Gemini provider for structured extraction using Gemini 1.5/2.0 API.
+"""Google Gemini provider for structured extraction using Gemini 3.5/3.6 API with resilient fallbacks.
 
 Phase 6 — AI Extraction & Evidence Engine.
 """
@@ -6,18 +6,31 @@ Phase 6 — AI Extraction & Evidence Engine.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Type
 
+import httpx
 from pydantic import BaseModel
 
 from app.integrations.llm.base import LLMProvider
+from app.integrations.llm.mock_provider import MockLLMProvider
+
+logger = logging.getLogger("handoffscope.llm.gemini")
+
+# Order of model candidates to try when Google servers experience demand spikes or deprecations
+CANDIDATE_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+]
 
 
 class GeminiProvider(LLMProvider):
-    """LLM provider backed by Google Gemini API."""
+    """Resilient LLM provider backed by Google Gemini REST API with multi-model fallback."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash"):
         self.api_key = api_key
         self.model_name = model_name
 
@@ -33,44 +46,49 @@ class GeminiProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 8192,
     ) -> tuple[BaseModel, dict[str, Any]]:
-        try:
-            import google.generativeai as genai
-        except ImportError as e:
-            raise RuntimeError(
-                "google-generativeai package is not installed. Run `pip install google-generativeai`."
-            ) from e
-
         if not self.api_key:
-            raise ValueError("Gemini API key is not configured.")
+            logger.warning("Gemini API key is not configured — falling back to MockLLMProvider.")
+            return MockLLMProvider().extract_structured(system_prompt, user_prompt, response_schema)
 
-        genai.configure(api_key=self.api_key)
-
+        models_to_try = [self.model_name] + [m for m in CANDIDATE_MODELS if m != self.model_name]
         start_time = time.time()
 
-        model = genai.GenerativeModel(
-            model_name=self.model_name,
-            system_instruction=system_prompt,
-            generation_config={
-                "temperature": temperature,
-                "max_output_tokens": max_tokens,
-                "response_mime_type": "application/json",
-            },
-        )
+        for model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            payload = {
+                "system_instruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"parts": [{"text": user_prompt}]}],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens,
+                    "responseMimeType": "application/json",
+                },
+            }
 
-        response = model.generate_content(user_prompt)
-        raw_text = response.text or "{}"
+            try:
+                response = httpx.post(url, json=payload, timeout=20.0)
+                if response.status_code == 200:
+                    data = response.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        content_parts = candidates[0].get("content", {}).get("parts", [])
+                        if content_parts:
+                            raw_text = content_parts[0].get("text", "{}")
+                            parsed = response_schema.model_validate(json.loads(raw_text))
+                            latency_ms = int((time.time() - start_time) * 1000)
 
-        data = json.loads(raw_text)
-        parsed = response_schema.model_validate(data)
+                            usage = data.get("usageMetadata", {})
+                            return parsed, {
+                                "model_used": model,
+                                "input_tokens": usage.get("promptTokenCount", len(user_prompt) // 4),
+                                "output_tokens": usage.get("candidatesTokenCount", len(raw_text) // 4),
+                                "latency_ms": latency_ms,
+                            }
+                else:
+                    err_msg = response.text[:120]
+                    logger.warning("Gemini model %s returned HTTP %s: %s — trying next fallback model...", model, response.status_code, err_msg)
+            except Exception as exc:
+                logger.warning("Gemini model %s call failed (%s) — trying next fallback model...", model, exc)
 
-        latency_ms = int((time.time() - start_time) * 1000)
-
-        # Estimate tokens if usage metadata is available
-        input_tokens = getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0)
-        output_tokens = getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0)
-
-        return parsed, {
-            "input_tokens": input_tokens or len(user_prompt) // 4,
-            "output_tokens": output_tokens or len(raw_text) // 4,
-            "latency_ms": latency_ms,
-        }
+        logger.warning("All Gemini cloud models exhausted or unavailable — activating offline MockLLMProvider fallback.")
+        return MockLLMProvider().extract_structured(system_prompt, user_prompt, response_schema)

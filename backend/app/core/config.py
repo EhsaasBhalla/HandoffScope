@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # ── LLM Provider ─────────────────────────────────────────
     LLM_PROVIDER: str = "gemini"
     LLM_API_KEY: str = ""
-    LLM_MODEL_NAME: str = "gemini-1.5-flash"
+    LLM_MODEL_NAME: str = "gemini-3.5-flash"
     LLM_MAX_CALLS_PER_CASE: int = 50
 
     # ── Document Storage ──────────────────────────────────────
