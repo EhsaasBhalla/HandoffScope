@@ -26,8 +26,17 @@ async def lifespan(app: FastAPI):
     import app.modules.documents.models  # noqa: F401
     import app.modules.transfer_packs.models  # noqa: F401
     import app.modules.questions.models  # noqa: F401
+    import app.modules.identity.models  # noqa: F401
 
     try:
+        # Ensure new columns exist on existing databases
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE source_records ADD COLUMN author_mapped_user_id VARCHAR(36)"))
+                conn.commit()
+            except Exception:
+                pass
+
         Base.metadata.create_all(bind=engine)
         db = SessionLocal()
         try:

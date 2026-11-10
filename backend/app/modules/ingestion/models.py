@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 import uuid
 from datetime import datetime, timezone
 
@@ -21,6 +22,9 @@ from app.db.base import Base
 from app.db.enums import ProcessingStatus, Sensitivity, SourceRecordType
 from app.db.mixins import TimestampMixin, UUIDMixin
 
+if TYPE_CHECKING:
+    from app.modules.workspaces.models import User
+
 
 class SourceRecord(UUIDMixin, TimestampMixin, Base):
     """A normalised record imported from any source (issue, PR, commit, etc.)."""
@@ -37,6 +41,9 @@ class SourceRecord(UUIDMixin, TimestampMixin, Base):
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     author_external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     author_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    author_mapped_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     state: Mapped[str | None] = mapped_column(String(50), nullable=True)  # open, closed, merged
     url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     sensitivity: Mapped[Sensitivity] = mapped_column(default=Sensitivity.GENERAL, nullable=False)
@@ -53,6 +60,7 @@ class SourceRecord(UUIDMixin, TimestampMixin, Base):
     events: Mapped[list[SourceEvent]] = relationship(
         back_populates="record", cascade="all, delete-orphan"
     )
+    author_mapped_user: Mapped["User | None"] = relationship("User", foreign_keys=[author_mapped_user_id])
 
     __table_args__ = (
         UniqueConstraint(
