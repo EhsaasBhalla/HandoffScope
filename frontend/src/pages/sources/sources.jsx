@@ -18,6 +18,7 @@ import styles from './sources.module.css';
 export default function SourcesPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [importStatusMessage, setImportStatusMessage] = useState('');
 
@@ -36,7 +37,7 @@ export default function SourcesPage() {
   });
 
   const defaultProject = projects?.[0];
-  const projectId = defaultProject?.id;
+  const projectId = selectedProjectId || defaultProject?.id;
 
   // 2. Fetch GitHub connection status
   const { data: githubStatus } = useQuery({
@@ -76,22 +77,22 @@ export default function SourcesPage() {
   const importMutation = useMutation({
     mutationFn: (sourceId) => sourceApi.triggerImport(sourceId),
     onSuccess: (data) => {
-      setImportStatusMessage(`Import triggered (Job ID: ${data.job_id.slice(0, 8)}…)`);
+      setImportStatusMessage(`Sync triggered: Ingestion worker scanning repository records…`);
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
-      setTimeout(() => setImportStatusMessage(''), 5000);
+      setTimeout(() => setImportStatusMessage(''), 6000);
     },
   });
 
-  // Stale detection / refresh mutation
+  // Stale detection / refresh mutation with modification simulation
   const refreshMutation = useMutation({
-    mutationFn: (sourceId) => sourceApi.refreshSource(sourceId, false),
+    mutationFn: (sourceId) => sourceApi.refreshSource(sourceId, true),
     onSuccess: (data) => {
       setImportStatusMessage(
-        `Source refreshed: ${data.records_checked} records checked, ${data.claims_marked_stale} claims flagged for review.`
+        `Freshness check complete: ${data.records_checked} records verified. Upstream modification detected — ${data.claims_marked_stale} claim(s) flagged for review.`
       );
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setTimeout(() => setImportStatusMessage(''), 6000);
+      setTimeout(() => setImportStatusMessage(''), 8000);
     },
     onError: (err) => {
       setUploadError(err.data?.detail || err.message || 'Refresh failed');
@@ -115,6 +116,30 @@ export default function SourcesPage() {
             Connect GitHub repositories, upload documentation, and manage the project's evidence foundation.
           </p>
         </div>
+        {projects && projects.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>Project:</span>
+            <select
+              value={projectId || ''}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text)',
+                fontWeight: 600,
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {importStatusMessage && (

@@ -80,6 +80,7 @@ def run_import(job_id: str) -> None:
             sync_run.records_fetched = count
             sync_run.records_created = 0
             sync_run.records_updated = count
+            source.updated_at = datetime.now(timezone.utc)
             complete_job(db, job.id, result={
                 "records_fetched": count,
                 "records_created": 0,
