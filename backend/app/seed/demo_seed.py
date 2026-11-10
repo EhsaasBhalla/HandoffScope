@@ -160,8 +160,54 @@ def seed_demo_data(db: Session) -> None:
             db.add(pm)
             logger.info("Added %s to project as %s", user.email, u_data["proj_role"].value)
 
+    # ── Create Pydantic testing project & source ──────────────
+    pydantic_proj = db.query(Project).filter(Project.slug == "pydantic").first()
+    if not pydantic_proj:
+        pydantic_proj = Project(
+            workspace_id=workspace.id,
+            name="Pydantic",
+            slug="pydantic",
+            description="Data validation using Python type hints",
+            repo_url="https://github.com/pydantic/pydantic",
+        )
+        db.add(pydantic_proj)
+        db.flush()
+        logger.info("Created project: %s", pydantic_proj.slug)
+
+    for u_data in DEMO_USERS:
+        user = users[u_data["email"]]
+        existing = (
+            db.query(ProjectMembership)
+            .filter(
+                ProjectMembership.user_id == user.id,
+                ProjectMembership.project_id == pydantic_proj.id,
+            )
+            .first()
+        )
+        if not existing:
+            db.add(ProjectMembership(user_id=user.id, project_id=pydantic_proj.id, role=u_data["proj_role"]))
+
+    from app.modules.sources.models import ConnectedSource
+    from app.db.enums import SourceType, ConnectionStatus
+    pyd_source = db.query(ConnectedSource).filter(
+        ConnectedSource.project_id == pydantic_proj.id,
+        ConnectedSource.name == "pydantic/pydantic",
+    ).first()
+    if not pyd_source:
+        pyd_source = ConnectedSource(
+            project_id=pydantic_proj.id,
+            source_type=SourceType.GITHUB_REPO,
+            name="pydantic/pydantic",
+            external_id="pydantic/pydantic",
+            connection_status=ConnectionStatus.ACTIVE,
+            config={"owner": "pydantic", "repo": "pydantic"},
+            connected_by_id=users["maya.sharma@example.test"].id,
+        )
+        db.add(pyd_source)
+        logger.info("Connected pydantic/pydantic source to Pydantic project")
+
     db.commit()
-    logger.info("Demo seed complete — %d users, 1 workspace, 1 project", len(DEMO_USERS))
+    logger.info("Demo seed complete — %d users, 1 workspace, 2 projects", len(DEMO_USERS))
 
     # ── Seed synthetic fixture (Phase 4) ──────────────────────
     from app.seed.demo_data import seed_synthetic_fixture

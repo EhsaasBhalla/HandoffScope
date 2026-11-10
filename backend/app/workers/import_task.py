@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
+from app.core.config import settings
 from app.db.base import SessionLocal
 from app.db.enums import ProcessingStatus, SyncRunStatus
 from app.modules.ingestion.models import SourceEvent, SourceRecord
@@ -92,19 +94,12 @@ def run_import(job_id: str) -> None:
         config = source.config or {}
         owner = config.get("owner", "")
         repo = config.get("repo", "")
-        access_token = config.get("access_token", "")
+        access_token = config.get("access_token") or getattr(settings, "GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
 
         if not owner or not repo:
             fail_job(db, job.id, error_message="Source config missing owner/repo")
             sync_run.status = SyncRunStatus.FAILED
             sync_run.error_message = "Missing owner/repo in config"
-            db.commit()
-            return
-
-        if not access_token:
-            fail_job(db, job.id, error_message="GitHub Access Token required for sync")
-            sync_run.status = SyncRunStatus.FAILED
-            sync_run.error_message = "GitHub Access Token required for sync"
             db.commit()
             return
 
@@ -121,18 +116,19 @@ def run_import(job_id: str) -> None:
             issues = client.list_issues(owner, repo)
             records_fetched += len(issues)
 
-            for issue_data in issues:
+            for idx, issue_data in enumerate(issues):
                 mapped = map_issue(issue_data)
                 record = _upsert_record(db, source.id, mapped)
                 if record:
                     records_created += 1
 
-                    # Fetch comments for this issue/PR
-                    comments = client.list_issue_comments(owner, repo, issue_data["number"])
-                    records_fetched += len(comments)
-                    for comment_data in comments:
-                        event_mapped = map_comment(comment_data, str(issue_data["number"]))
-                        _upsert_event(db, record.id, event_mapped)
+                    # Fetch comments for recent issues (up to 5 to avoid public rate limits)
+                    if idx < 5:
+                        comments = client.list_issue_comments(owner, repo, issue_data["number"])
+                        records_fetched += len(comments)
+                        for comment_data in comments:
+                            event_mapped = map_comment(comment_data, str(issue_data["number"]))
+                            _upsert_event(db, record.id, event_mapped)
 
             # ── Fetch PRs (reviews + review comments) ─────────
             update_job_progress(db, job.id, message="Fetching pull requests…")
@@ -141,30 +137,27 @@ def run_import(job_id: str) -> None:
             pulls = client.list_pulls(owner, repo)
             records_fetched += len(pulls)
 
-            for pr_data in pulls:
-                # PR reviews
-                reviews = client.list_pull_reviews(owner, repo, pr_data["number"])
-                records_fetched += len(reviews)
-
-                pr_record = (
-                    db.query(SourceRecord)
-                    .filter(
-                        SourceRecord.connected_source_id == source.id,
-                        SourceRecord.external_id == str(pr_data["number"]),
-                    )
-                    .first()
-                )
+            for idx, pr_data in enumerate(pulls):
+                pr_record = _upsert_record(db, source.id, map_issue(pr_data))
                 if pr_record:
-                    for review_data in reviews:
-                        event_mapped = map_review(review_data, pr_data["number"])
-                        _upsert_event(db, pr_record.id, event_mapped)
+                    records_created += 1
+
+                # Fetch reviews for recent PRs
+                if idx < 5:
+                    reviews = client.list_pull_reviews(owner, repo, pr_data["number"])
+                    records_fetched += len(reviews)
+                    if pr_record:
+                        for review_data in reviews:
+                            event_mapped = map_review(review_data, pr_data["number"])
+                            _upsert_event(db, pr_record.id, event_mapped)
 
                     # Review comments (inline)
                     review_comments = client.list_pull_review_comments(owner, repo, pr_data["number"])
                     records_fetched += len(review_comments)
-                    for rc_data in review_comments:
-                        event_mapped = map_review_comment(rc_data, pr_data["number"])
-                        _upsert_event(db, pr_record.id, event_mapped)
+                    if pr_record:
+                        for rc_data in review_comments:
+                            event_mapped = map_review_comment(rc_data, pr_data["number"])
+                            _upsert_event(db, pr_record.id, event_mapped)
 
             # ── Fetch Commits ─────────────────────────────────
             update_job_progress(db, job.id, message="Fetching commits…")

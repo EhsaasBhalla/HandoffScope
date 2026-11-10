@@ -18,38 +18,53 @@ GITHUB_ACCEPT = "application/vnd.github+json"
 class GitHubClient:
     """Wrapper around GitHub REST API v3."""
 
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str | None = None):
         self.token = access_token
         self._headers = {
-            "Authorization": f"Bearer {access_token}",
             "Accept": GITHUB_ACCEPT,
+            "User-Agent": "HandoffScope/1.0",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        if access_token and access_token.strip():
+            self._headers["Authorization"] = f"Bearer {access_token.strip()}"
 
     def _get(self, url: str, params: dict | None = None) -> dict | list:
         """Synchronous GET request."""
-        resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 403:
+                logger.warning("GitHub API rate limit or forbidden: %s", exc)
+                return {}
+            raise
 
-    def _get_paginated(self, url: str, params: dict | None = None, max_pages: int = 20) -> list:
-        """Fetch all pages from a paginated GitHub endpoint."""
+    def _get_paginated(self, url: str, params: dict | None = None, max_pages: int = 1) -> list:
+        """Fetch pages from a paginated GitHub endpoint safely."""
         params = params or {}
-        params.setdefault("per_page", 100)
+        params.setdefault("per_page", 30)
         all_items = []
         page = 1
 
         while page <= max_pages:
             params["page"] = page
-            resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
-            resp.raise_for_status()
-            items = resp.json()
-            if not items:
+            try:
+                resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
+                if resp.status_code == 403:
+                    logger.warning("GitHub rate limit reached while fetching %s", url)
+                    break
+                resp.raise_for_status()
+                items = resp.json()
+                if not items or not isinstance(items, list):
+                    break
+                all_items.extend(items)
+                if len(items) < params["per_page"]:
+                    break
+                page += 1
+            except httpx.HTTPError as exc:
+                logger.warning("GitHub request failed for %s (page %d): %s", url, page, exc)
                 break
-            all_items.extend(items)
-            if len(items) < params["per_page"]:
-                break
-            page += 1
 
         return all_items
 
