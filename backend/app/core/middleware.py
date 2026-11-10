@@ -34,9 +34,16 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 def setup_middleware(app: FastAPI) -> None:
     """Register all middleware on the FastAPI application."""
+    origins = settings.cors_origins_list
+    allow_regex = None
+    if "*" in origins:
+        origins = []
+        allow_regex = ".*"
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=origins,
+        allow_origin_regex=allow_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

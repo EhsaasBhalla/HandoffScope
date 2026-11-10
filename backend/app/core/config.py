@@ -22,7 +22,24 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
 
     # ── CORS ──────────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: str | list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS origins safely from list, JSON array string, or comma-separated string."""
+        if isinstance(self.CORS_ORIGINS, list):
+            return self.CORS_ORIGINS
+        if isinstance(self.CORS_ORIGINS, str):
+            val = self.CORS_ORIGINS.strip()
+            if val.startswith("[") and val.endswith("]"):
+                try:
+                    import json
+                    return json.loads(val)
+                except Exception:
+                    pass
+            parts = [x.strip() for x in val.split(",") if x.strip()]
+            return parts if parts else ["*"]
+        return ["*"]
 
     # ── GitHub App ────────────────────────────────────────────
     GITHUB_APP_ID: str = ""

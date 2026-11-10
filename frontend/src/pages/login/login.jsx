@@ -11,6 +11,23 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  async function quickLogin(targetEmail, targetPass) {
+    setEmail(targetEmail);
+    setPassword(targetPass);
+    setError('');
+    setLoading(true);
+
+    try {
+      await login(targetEmail, targetPass);
+      navigate('/', { replace: true });
+    } catch (err) {
+      const msg = err.data?.error?.message || err.data?.detail || err.message || 'Login failed';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -20,7 +37,8 @@ export default function LoginPage() {
       await login(email, password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.data?.error?.message || err.message || 'Login failed');
+      const msg = err.data?.error?.message || err.data?.detail || err.message || 'Login failed';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -65,15 +83,13 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <p className={styles.demoHint}>Demo environment — Click any persona to quick-fill credentials:</p>
+      <p className={styles.demoHint}>Demo environment — Click any persona to sign in instantly:</p>
       <div className={styles.personaGrid}>
         <button
           type="button"
           className={styles.personaBtn}
-          onClick={() => {
-            setEmail('maya.sharma@example.test');
-            setPassword('handoffscope-dev-2026');
-          }}
+          disabled={loading}
+          onClick={() => quickLogin('maya.sharma@example.test', 'handoffscope-dev-2026')}
         >
           <strong>Maya Sharma</strong>
           <span className={styles.personaRole}>Project Lead</span>
@@ -82,10 +98,8 @@ export default function LoginPage() {
         <button
           type="button"
           className={styles.personaBtn}
-          onClick={() => {
-            setEmail('kabir.singh@example.test');
-            setPassword('handoffscope-dev-2026');
-          }}
+          disabled={loading}
+          onClick={() => quickLogin('kabir.singh@example.test', 'handoffscope-dev-2026')}
         >
           <strong>Kabir Singh</strong>
           <span className={styles.personaRole}>Reviewer</span>
@@ -94,10 +108,8 @@ export default function LoginPage() {
         <button
           type="button"
           className={styles.personaBtn}
-          onClick={() => {
-            setEmail('aisha.khan@example.test');
-            setPassword('handoffscope-dev-2026');
-          }}
+          disabled={loading}
+          onClick={() => quickLogin('aisha.khan@example.test', 'handoffscope-dev-2026')}
         >
           <strong>Aisha Khan</strong>
           <span className={styles.personaRole}>Successor</span>
@@ -106,10 +118,8 @@ export default function LoginPage() {
         <button
           type="button"
           className={styles.personaBtn}
-          onClick={() => {
-            setEmail('arjun.patel@example.test');
-            setPassword('handoffscope-dev-2026');
-          }}
+          disabled={loading}
+          onClick={() => quickLogin('arjun.patel@example.test', 'handoffscope-dev-2026')}
         >
           <strong>Arjun Patel</strong>
           <span className={styles.personaRole}>Departing Dev</span>
