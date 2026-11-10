@@ -27,4 +27,21 @@ export const projectApi = {
   listProjectMembers(projectId) {
     return httpClient.get(`/api/v1/projects/${projectId}/members`);
   },
+
+  listWorkspaceMembers(workspaceId) {
+    return httpClient.get(`/api/v1/workspaces/${workspaceId}/members`);
+  },
+
+  addWorkspaceMember(workspaceId, data) {
+    return httpClient.post(`/api/v1/workspaces/${workspaceId}/members`, data);
+  },
+
+  addProjectMember(projectId, data) {
+    return httpClient.post(`/api/v1/projects/${projectId}/members`, data);
+  },
+
+  removeProjectMember(projectId, userId) {
+    return httpClient.delete(`/api/v1/projects/${projectId}/members/${userId}`);
+  },
 };
+

@@ -215,7 +215,10 @@ def build_recipient_projection(
         )
         .first()
     )
-    departing_name = departing_participant.user.display_name if departing_participant and departing_participant.user else None
+    departing_user = None
+    if departing_participant and departing_participant.user_id:
+        departing_user = db.query(User).filter(User.id == departing_participant.user_id).first()
+    departing_name = departing_user.display_name if departing_user else None
 
     # Fetch Transfer Packs
     packs = (

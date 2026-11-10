@@ -19,7 +19,20 @@ export const sourceApi = {
   listSyncRuns(sourceId) {
     return httpClient.get(`/api/v1/sources/${sourceId}/sync-runs`);
   },
+
+  refreshSource(sourceId, simulateModification = false) {
+    return httpClient.post(`/api/v1/sources/${sourceId}/refresh`, {
+      simulate_modification: simulateModification,
+    });
+  },
+
+  refreshCaseSources(caseId, simulateModification = false) {
+    return httpClient.post(`/api/v1/cases/${caseId}/refresh-sources`, {
+      simulate_modification: simulateModification,
+    });
+  },
 };
+
 
 export const githubApi = {
   getInstallUrl() {

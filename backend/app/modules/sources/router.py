@@ -185,3 +185,50 @@ def list_sync_runs(
         started_at=r.started_at.isoformat() if r.started_at else None,
         completed_at=r.completed_at.isoformat() if r.completed_at else None,
     ) for r in runs]
+
+
+class RefreshRequest(BaseModel):
+    simulate_modification: bool = False
+
+
+@router.post("/sources/{source_id}/refresh")
+def refresh_source_endpoint(
+    source_id: uuid.UUID,
+    body: RefreshRequest | None = None,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Manually refresh a source and propagate staleness."""
+    from app.modules.sources.service import refresh_source
+    simulate = body.simulate_modification if body else False
+    try:
+        return refresh_source(
+            db,
+            source_id=source_id,
+            actor_id=user.id,
+            simulate_modification=simulate,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/cases/{case_id}/refresh-sources")
+def refresh_case_sources_endpoint(
+    case_id: uuid.UUID,
+    body: RefreshRequest | None = None,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Manually refresh all connected sources for a handover case and propagate staleness."""
+    from app.modules.sources.service import refresh_case_sources
+    simulate = body.simulate_modification if body else False
+    try:
+        return refresh_case_sources(
+            db,
+            case_id=case_id,
+            actor_id=user.id,
+            simulate_modification=simulate,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+

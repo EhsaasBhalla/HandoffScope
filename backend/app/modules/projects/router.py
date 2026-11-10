@@ -167,3 +167,88 @@ def list_project_members(
             user_display_name=u.display_name if u else None,
         ))
     return results
+
+
+class AddProjectMemberRequest(BaseModel):
+    user_id: uuid.UUID
+    role: str = "CONTRIBUTOR"
+
+
+@router.post("/projects/{project_id}/members", response_model=ProjectMemberResponse, status_code=201)
+def add_or_update_project_member(
+    project_id: uuid.UUID,
+    body: AddProjectMemberRequest,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Add a member to a project or update their role."""
+    from app.db.enums import ProjectRole
+    from app.modules.workspaces.models import User
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    target_user = db.query(User).filter(User.id == body.user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        proj_role = ProjectRole(body.role.upper())
+    except ValueError:
+        proj_role = ProjectRole.CONTRIBUTOR
+
+    membership = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.user_id == body.user_id,
+        )
+        .first()
+    )
+    if membership:
+        membership.role = proj_role
+    else:
+        membership = ProjectMembership(
+            project_id=project_id,
+            user_id=body.user_id,
+            role=proj_role,
+        )
+        db.add(membership)
+
+    db.commit()
+    db.refresh(membership)
+
+    return ProjectMemberResponse(
+        id=membership.id,
+        user_id=membership.user_id,
+        project_id=membership.project_id,
+        role=membership.role.value,
+        user_email=target_user.email,
+        user_display_name=target_user.display_name,
+    )
+
+
+@router.delete("/projects/{project_id}/members/{user_id}", status_code=204)
+def remove_project_member(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a member from a project."""
+    membership = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.user_id == user_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Project membership not found")
+
+    db.delete(membership)
+    db.commit()
+    return None
+

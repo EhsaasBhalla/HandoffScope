@@ -65,9 +65,59 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <p className={styles.demoHint}>Demo environment — use any seeded account</p>
+      <p className={styles.demoHint}>Demo environment — Click any persona to quick-fill credentials:</p>
+      <div className={styles.personaGrid}>
+        <button
+          type="button"
+          className={styles.personaBtn}
+          onClick={() => {
+            setEmail('maya.sharma@example.test');
+            setPassword('handoffscope-dev-2026');
+          }}
+        >
+          <strong>Maya Sharma</strong>
+          <span className={styles.personaRole}>Project Lead</span>
+        </button>
+
+        <button
+          type="button"
+          className={styles.personaBtn}
+          onClick={() => {
+            setEmail('kabir.singh@example.test');
+            setPassword('handoffscope-dev-2026');
+          }}
+        >
+          <strong>Kabir Singh</strong>
+          <span className={styles.personaRole}>Reviewer</span>
+        </button>
+
+        <button
+          type="button"
+          className={styles.personaBtn}
+          onClick={() => {
+            setEmail('aisha.khan@example.test');
+            setPassword('handoffscope-dev-2026');
+          }}
+        >
+          <strong>Aisha Khan</strong>
+          <span className={styles.personaRole}>Successor</span>
+        </button>
+
+        <button
+          type="button"
+          className={styles.personaBtn}
+          onClick={() => {
+            setEmail('arjun.patel@example.test');
+            setPassword('handoffscope-dev-2026');
+          }}
+        >
+          <strong>Arjun Patel</strong>
+          <span className={styles.personaRole}>Departing Dev</span>
+        </button>
+      </div>
+
       <div className={styles.demoCredentials}>
-        maya.sharma@example.test / handoffscope-dev-2026
+        Password for all accounts: <code>handoffscope-dev-2026</code>
       </div>
     </div>
   );

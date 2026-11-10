@@ -46,6 +46,8 @@ def list_audit_events(
     entity_type: str | None = None,
     entity_id: uuid.UUID | None = None,
     actor_id: uuid.UUID | None = None,
+    action: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[AuditEvent]:
@@ -57,4 +59,12 @@ def list_audit_events(
         query = query.filter(AuditEvent.entity_id == entity_id)
     if actor_id:
         query = query.filter(AuditEvent.actor_id == actor_id)
+    if action:
+        query = query.filter(AuditEvent.action.ilike(f"%{action}%"))
+    if search:
+        query = query.filter(
+            (AuditEvent.summary.ilike(f"%{search}%")) |
+            (AuditEvent.action.ilike(f"%{search}%")) |
+            (AuditEvent.entity_type.ilike(f"%{search}%"))
+        )
     return query.order_by(AuditEvent.created_at.desc()).offset(offset).limit(limit).all()

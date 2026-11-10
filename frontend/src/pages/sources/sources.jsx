@@ -82,6 +82,22 @@ export default function SourcesPage() {
     },
   });
 
+  // Stale detection / refresh mutation
+  const refreshMutation = useMutation({
+    mutationFn: (sourceId) => sourceApi.refreshSource(sourceId, false),
+    onSuccess: (data) => {
+      setImportStatusMessage(
+        `Source refreshed: ${data.records_checked} records checked, ${data.claims_marked_stale} claims flagged for review.`
+      );
+      queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setTimeout(() => setImportStatusMessage(''), 6000);
+    },
+    onError: (err) => {
+      setUploadError(err.data?.detail || err.message || 'Refresh failed');
+    },
+  });
+
   function handleFileSelect(e) {
     const file = e.target.files?.[0];
     if (file) {
@@ -253,14 +269,27 @@ export default function SourcesPage() {
                     </td>
                     <td>{new Date(src.created_at).toLocaleDateString()}</td>
                     <td>
-                      <button
-                        className={styles.importTriggerBtn}
-                        onClick={() => importMutation.mutate(src.id)}
-                        disabled={importMutation.isPending}
-                      >
-                        <RefreshCw size={13} />
-                        <span>Trigger Sync</span>
-                      </button>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className={styles.importTriggerBtn}
+                          onClick={() => importMutation.mutate(src.id)}
+                          disabled={importMutation.isPending}
+                          title="Trigger full background ingestion"
+                        >
+                          <RefreshCw size={13} />
+                          <span>Sync</span>
+                        </button>
+                        <button
+                          className={styles.importTriggerBtn}
+                          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+                          onClick={() => refreshMutation.mutate(src.id)}
+                          disabled={refreshMutation.isPending}
+                          title="Check upstream changes and propagate staleness"
+                        >
+                          <RefreshCw size={13} className={refreshMutation.isPending ? styles.spinIcon : ''} />
+                          <span>Check Freshness</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
