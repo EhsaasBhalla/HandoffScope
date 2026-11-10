@@ -17,12 +17,20 @@ import {
   Eye,
   ShieldCheck,
   X,
+  UserCheck,
+  UserPlus,
+  Trash2,
+  Send,
 } from 'lucide-react';
 import { caseApi } from '../../api/case.api';
 import { evidenceApi } from '../../api/evidence.api';
 import { transferPackApi } from '../../api/transferPack.api';
 import { questionApi } from '../../api/question.api';
 import { reviewApi } from '../../api/review.api';
+import { sharingApi } from '../../api/sharing.api';
+import { recipientApi } from '../../api/recipient.api';
+import { projectApi } from '../../api/project.api';
+import { httpClient } from '../../api/httpClient';
 import { ClaimCard } from '../../components/claim-card/claim-card';
 import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle } from 'lucide-react';
 import styles from './handover-case-detail.module.css';
@@ -65,6 +73,14 @@ export default function HandoverCaseDetailPage() {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [amendmentReason, setAmendmentReason] = useState('');
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
+
+  // Sharing & Recipient state (Phase 9)
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareRecipientId, setShareRecipientId] = useState('');
+  const [shareVersionId, setShareVersionId] = useState('');
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignPackId, setAssignPackId] = useState('');
+  const [assignUserId, setAssignUserId] = useState('');
 
   const { data: caseData, isLoading } = useQuery({
     queryKey: ['case', caseId],
@@ -137,6 +153,53 @@ export default function HandoverCaseDetailPage() {
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+    },
+  });
+
+  // Phase 9 Sharing & Responsibility Queries
+  const { data: caseShares } = useQuery({
+    queryKey: ['case-shares', caseId],
+    queryFn: () => sharingApi.listCaseShares(caseId),
+    enabled: !!caseId && activeTab === 'sharing',
+  });
+
+  const { data: caseResponsibilities } = useQuery({
+    queryKey: ['case-responsibilities', caseId],
+    queryFn: () => recipientApi.listResponsibilities(caseId),
+    enabled: !!caseId && activeTab === 'sharing',
+  });
+
+  const { data: projectMembers } = useQuery({
+    queryKey: ['project-members', caseData?.project_id],
+    queryFn: () => projectApi.listProjectMembers(caseData?.project_id),
+    enabled: !!caseData?.project_id,
+  });
+
+  const shareVersionMutation = useMutation({
+    mutationFn: ({ versionId, recipientUserId }) =>
+      sharingApi.shareVersion(versionId, recipientUserId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-shares', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      setShowShareModal(false);
+      setShareRecipientId('');
+    },
+  });
+
+  const revokeShareMutation = useMutation({
+    mutationFn: (grantId) => sharingApi.revokeShare(grantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-shares', caseId] });
+    },
+  });
+
+  const assignResponsibilityMutation = useMutation({
+    mutationFn: (data) => recipientApi.assignResponsibility(caseId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-responsibilities', caseId] });
+      setShowAssignModal(false);
+      setAssignPackId('');
+      setAssignUserId('');
     },
   });
 
@@ -834,10 +897,164 @@ export default function HandoverCaseDetailPage() {
         )}
 
         {activeTab === 'sharing' && (
-          <div className={styles.placeholderTab}>
-            <Share2 size={32} />
-            <h3>Recipients & Access Sharing</h3>
-            <p>Share grants and successor projections will appear here (Phase 9).</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
+            {/* 1. Share Grants Section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Share2 size={18} style={{ color: 'var(--color-accent)' }} />
+                    Version Share Grants ({caseShares?.length || 0})
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                    Grant verified successors and incoming leads read/sign-off access to approved version snapshots.
+                  </p>
+                </div>
+                <button
+                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                  onClick={() => setShowShareModal(true)}
+                  disabled={!versions || versions.length === 0}
+                >
+                  <Send size={14} /> Share Version Access
+                </button>
+              </div>
+
+              {!caseShares || caseShares.length === 0 ? (
+                <div className={styles.placeholderTab} style={{ padding: '2rem' }}>
+                  <UserPlus size={32} />
+                  <h3>No Active Share Grants</h3>
+                  <p>Approve a version and issue a share grant to allow successors to review and acknowledge this handover.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                  {caseShares.map((g) => (
+                    <div key={g.id} className={styles.versionCard}>
+                      <div className={styles.versionTop}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>
+                            {g.recipient_name}
+                          </span>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                            ({g.recipient_email})
+                          </span>
+                          <span className={g.is_active ? styles.currentPill : styles.supersededPill}>
+                            {g.is_active ? 'Active Grant' : 'Revoked'}
+                          </span>
+                          {g.is_acknowledged ? (
+                            <span className={styles.currentPill}>Acknowledged</span>
+                          ) : (
+                            <span className={styles.supersededPill}>Pending Ack</span>
+                          )}
+                        </div>
+
+                        {g.is_active && (
+                          <button
+                            className={styles.btnActionSm}
+                            onClick={() => revokeShareMutation.mutate(g.id)}
+                            style={{ color: '#f87171' }}
+                          >
+                            <Trash2 size={12} /> Revoke Access
+                          </button>
+                        )}
+                      </div>
+
+                      <div className={styles.versionMeta}>
+                        <span>Version {g.version_number}</span>
+                        <span>•</span>
+                        <span>Granted {new Date(g.granted_at).toLocaleDateString()} by {g.granter_name || 'Lead'}</span>
+                        {g.acknowledged_at && (
+                          <>
+                            <span>•</span>
+                            <span>Acknowledged {new Date(g.acknowledged_at).toLocaleString()}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Responsibility Assignments Section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserCheck size={18} style={{ color: 'var(--color-accent)' }} />
+                    Transfer Pack Responsibility Assignments ({caseResponsibilities?.length || 0})
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                    Map operational ownership of specific services and runbooks to incoming engineers.
+                  </p>
+                </div>
+                <button
+                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                  onClick={() => setShowAssignModal(true)}
+                  disabled={!packs || packs.length === 0}
+                >
+                  <UserPlus size={14} /> Assign Pack Ownership
+                </button>
+              </div>
+
+              {!caseResponsibilities || caseResponsibilities.length === 0 ? (
+                <div className={styles.placeholderTab} style={{ padding: '2rem' }}>
+                  <Layers size={32} />
+                  <h3>No Responsibilities Assigned Yet</h3>
+                  <p>Assign transfer packs to specific engineers to initiate the formal acceptance workflow.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                  {caseResponsibilities.map((r) => {
+                    const isAccepted = r.status === 'ACCEPTED';
+                    const isDeclined = r.status === 'DECLINED';
+
+                    return (
+                      <div key={r.id} className={styles.versionCard}>
+                        <div className={styles.versionTop}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>
+                              {r.transfer_pack_name}
+                            </span>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                              ({r.transfer_pack_area || 'Core'})
+                            </span>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-accent-text)' }}>
+                              → Assigned to {r.assignee_name}
+                            </span>
+                          </div>
+
+                          <span
+                            className={styles.supersededPill}
+                            style={{
+                              color: isAccepted ? '#34d399' : isDeclined ? '#f87171' : '#fbbf24',
+                              borderColor: isAccepted ? 'rgba(16,185,129,0.3)' : isDeclined ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)',
+                            }}
+                          >
+                            {r.status.replace('_', ' ')}
+                          </span>
+                        </div>
+
+                        <div className={styles.versionMeta}>
+                          <span>Assigned {new Date(r.assigned_at).toLocaleDateString()}</span>
+                          {r.responded_at && (
+                            <>
+                              <span>•</span>
+                              <span>Responded {new Date(r.responded_at).toLocaleString()}</span>
+                            </>
+                          )}
+                        </div>
+
+                        {r.decline_reason && (
+                          <div className={styles.versionReason} style={{ borderLeftColor: '#f87171', color: '#f87171' }}>
+                            <strong>Decline Reason:</strong> {r.decline_reason}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1064,6 +1281,169 @@ export default function HandoverCaseDetailPage() {
                 onClick={() => setInspectSnapshot(null)}
               >
                 Close Snapshot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Version Modal (Phase 9) */}
+      {showShareModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowShareModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Share Approved Version</h3>
+            <p className={styles.modalSubtitle}>
+              Grant an incoming successor or stakeholder read and acknowledgment access to an approved version snapshot.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Target Handover Version
+              </label>
+              <select
+                value={shareVersionId || versions?.[0]?.id || ''}
+                onChange={(e) => setShareVersionId(e.target.value)}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '13px',
+                }}
+              >
+                {(versions || []).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    Version {v.version_number} {v.is_current ? '(Current Active)' : '(Superseded)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Select Recipient / Successor
+              </label>
+              <select
+                value={shareRecipientId}
+                onChange={(e) => setShareRecipientId(e.target.value)}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="">Choose a team member...</option>
+                {(projectMembers || []).map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.name || m.email} ({m.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setShowShareModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+                disabled={!shareRecipientId || shareVersionMutation.isPending}
+                onClick={() =>
+                  shareVersionMutation.mutate({
+                    versionId: shareVersionId || versions[0].id,
+                    recipientUserId: shareRecipientId,
+                  })
+                }
+              >
+                <Send size={14} />
+                {shareVersionMutation.isPending ? 'Issuing Grant…' : 'Issue Share Grant'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Pack Responsibility Modal (Phase 9) */}
+      {showAssignModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowAssignModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Assign Transfer Pack Responsibility</h3>
+            <p className={styles.modalSubtitle}>
+              Designate a successor as the operational owner for this Transfer Pack.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Transfer Pack
+              </label>
+              <select
+                value={assignPackId || packs?.[0]?.id || ''}
+                onChange={(e) => setAssignPackId(e.target.value)}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '13px',
+                }}
+              >
+                {(packs || []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.component_area || 'Core'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Designated Successor
+              </label>
+              <select
+                value={assignUserId}
+                onChange={(e) => setAssignUserId(e.target.value)}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="">Select successor engineer...</option>
+                {(projectMembers || []).map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.name || m.email} ({m.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setShowAssignModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+                disabled={!assignUserId || assignResponsibilityMutation.isPending}
+                onClick={() =>
+                  assignResponsibilityMutation.mutate({
+                    transfer_pack_id: assignPackId || packs[0].id,
+                    assigned_user_id: assignUserId,
+                    handover_version_id: versions?.[0]?.id,
+                  })
+                }
+              >
+                <UserPlus size={14} />
+                {assignResponsibilityMutation.isPending ? 'Assigning…' : 'Confirm Assignment'}
               </button>
             </div>
           </div>

@@ -18,6 +18,8 @@ from app.modules.evidence.router import router as evidence_router
 from app.modules.transfer_packs.router import router as transfer_packs_router
 from app.modules.questions.router import router as questions_router
 from app.modules.reviews.router import router as reviews_router
+from app.modules.sharing.router import router as sharing_router
+from app.modules.recipients.router import router as recipients_router
 
 router = APIRouter()
 
@@ -50,3 +52,7 @@ router.include_router(questions_router)
 
 # ── Phase 8: Review & Approval ────────────────────────────────
 router.include_router(reviews_router)
+
+# ── Phase 9: Recipient Access & Responsibility Transfer ───────
+router.include_router(sharing_router)
+router.include_router(recipients_router)
