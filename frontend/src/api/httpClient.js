@@ -4,7 +4,7 @@
  * All requests include credentials (cookies) and the X-CSRF-Token header.
  */
 
-const BASE_URL = '';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 let csrfToken = null;
 
