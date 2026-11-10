@@ -21,9 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.db.enums import ProcessingStatus, Sensitivity, SourceRecordType
 from app.db.mixins import TimestampMixin, UUIDMixin
-
-if TYPE_CHECKING:
-    from app.modules.workspaces.models import User
+from app.modules.workspaces.models import User
 
 
 class SourceRecord(UUIDMixin, TimestampMixin, Base):

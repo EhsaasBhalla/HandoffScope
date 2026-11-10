@@ -16,6 +16,9 @@ import {
   Lock,
 } from 'lucide-react';
 import { caseApi } from '../../api/case.api';
+import { evidenceApi } from '../../api/evidence.api';
+import { transferPackApi } from '../../api/transferPack.api';
+import { Sparkles, Layers } from 'lucide-react';
 import styles from './handover-case-detail.module.css';
 
 const STAGES = [
@@ -46,6 +49,21 @@ export default function HandoverCaseDetailPage() {
     queryKey: ['case', caseId],
     queryFn: () => caseApi.getCase(caseId),
     enabled: !!caseId,
+  });
+
+  const { data: packs, isLoading: packsLoading } = useQuery({
+    queryKey: ['case-packs', caseId],
+    queryFn: () => transferPackApi.listPacks(caseId),
+    enabled: !!caseId,
+  });
+
+  const reconstructMutation = useMutation({
+    mutationFn: () => evidenceApi.triggerReconstruction(caseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      setActiveTab('packs');
+    },
   });
 
   const statusMutation = useMutation({
@@ -113,6 +131,15 @@ export default function HandoverCaseDetailPage() {
         </div>
 
         <div className={styles.headerActions}>
+          <button
+            className={styles.primaryActionBtn}
+            onClick={() => reconstructMutation.mutate()}
+            disabled={reconstructMutation.isPending || caseData.is_blocked}
+          >
+            <Sparkles size={14} style={{ marginRight: '6px' }} />
+            {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
+          </button>
+
           {!caseData.is_blocked ? (
             <button
               className={styles.blockBtn}
@@ -244,10 +271,68 @@ export default function HandoverCaseDetailPage() {
         )}
 
         {activeTab === 'packs' && (
-          <div className={styles.placeholderTab}>
-            <GitBranch size={32} />
-            <h3>Transfer Packs</h3>
-            <p>Workstream groupings and evidence claims will appear here once AI extraction runs (Phase 6–7).</p>
+          <div className={styles.packsTab}>
+            <div className={styles.packsHeader}>
+              <div>
+                <h3>Transfer Packs</h3>
+                <p className={styles.desc}>
+                  Topical workstreams reconstructed from grounded source records and claims.
+                </p>
+              </div>
+
+              <button
+                className={styles.primaryActionBtn}
+                onClick={() => reconstructMutation.mutate()}
+                disabled={reconstructMutation.isPending || caseData.is_blocked}
+              >
+                <Sparkles size={14} style={{ marginRight: '6px' }} />
+                {reconstructMutation.isPending ? 'Reconstructing…' : 'Re-run Extraction'}
+              </button>
+            </div>
+
+            {packsLoading ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                Loading Transfer Packs…
+              </div>
+            ) : packs && packs.length > 0 ? (
+              <div className={styles.packsGrid}>
+                {packs.map((p) => (
+                  <Link
+                    key={p.id}
+                    to={`/cases/${caseId}/packs/${p.id}`}
+                    className={styles.packCard}
+                  >
+                    <div className={styles.packCardHeader}>
+                      <span className={styles.roleTag}>{p.component_area || 'Core Area'}</span>
+                      <span className={styles.statusBadge}>{p.status}</span>
+                    </div>
+                    <h4 className={styles.packName}>{p.name}</h4>
+                    <p className={styles.packDescription}>{p.description || 'No description provided.'}</p>
+                    <div className={styles.packFooter}>
+                      <span>{p.claims_count} Grounded Claims</span>
+                      <span style={{ color: 'var(--color-accent)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        Open Pack <ArrowRight size={12} />
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.placeholderTab}>
+                <Layers size={36} />
+                <h3>No Transfer Packs Generated Yet</h3>
+                <p>Run AI structured reconstruction to analyze commits, issues, and PRs into grounded workstreams.</p>
+                <button
+                  className={styles.primaryActionBtn}
+                  onClick={() => reconstructMutation.mutate()}
+                  disabled={reconstructMutation.isPending}
+                  style={{ marginTop: '1rem' }}
+                >
+                  <Sparkles size={14} style={{ marginRight: '6px' }} />
+                  {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

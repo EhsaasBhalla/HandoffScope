@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     import app.modules.transfer_packs.models  # noqa: F401
     import app.modules.questions.models  # noqa: F401
     import app.modules.identity.models  # noqa: F401
+    import app.modules.evidence.models  # noqa: F401
 
     try:
         # Ensure new columns exist on existing databases

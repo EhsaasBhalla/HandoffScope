@@ -107,3 +107,4 @@ class Claim(Base, UUIDMixin, TimestampMixin):
     # Relationships
     transfer_pack = relationship("TransferPack", back_populates="claims")
     reviewer = relationship("User", foreign_keys=[reviewed_by])
+    evidence_items = relationship("ClaimEvidence", back_populates="claim", cascade="all, delete-orphan")

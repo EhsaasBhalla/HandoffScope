@@ -13,6 +13,9 @@ from app.modules.jobs.router import router as jobs_router
 from app.modules.documents.router import router as documents_router
 from app.modules.identity.router import router as identity_router
 from app.modules.timeline.router import router as timeline_router
+from app.modules.reconstruction.router import router as reconstruction_router
+from app.modules.evidence.router import router as evidence_router
+from app.modules.transfer_packs.router import router as transfer_packs_router
 from app.modules.questions.router import router as questions_router
 
 router = APIRouter()
@@ -35,6 +38,11 @@ router.include_router(documents_router)
 # ── Phase 5: Normalisation & Identity ─────────────────────────
 router.include_router(identity_router)
 router.include_router(timeline_router)
+
+# ── Phase 6: AI Extraction & Evidence ─────────────────────────
+router.include_router(reconstruction_router)
+router.include_router(evidence_router)
+router.include_router(transfer_packs_router)
 
 # ── Phase 7: Questions & Answers ──────────────────────────────
 router.include_router(questions_router)

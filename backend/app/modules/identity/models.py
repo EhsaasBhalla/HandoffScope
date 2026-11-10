@@ -16,10 +16,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.db.enums import IdentityConfidence
 from app.db.mixins import TimestampMixin, UUIDMixin
-
-if TYPE_CHECKING:
-    from app.modules.projects.models import Project
-    from app.modules.workspaces.models import User
+from app.modules.projects.models import Project
+from app.modules.workspaces.models import User
 
 
 class IdentityMapping(UUIDMixin, TimestampMixin, Base):
