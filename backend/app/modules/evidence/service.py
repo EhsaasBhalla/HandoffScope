@@ -43,8 +43,6 @@ def review_claim(
     old_state = claim.review_state
 
     if act == "accept":
-        if old_state not in {ReviewState.PENDING_REVIEW, ReviewState.NEEDS_CLARIFICATION}:
-            raise ValueError(f"Cannot accept claim in state {old_state.value}")
         claim.review_state = ReviewState.ACCEPTED
         claim.reviewed_by = user_id
         claim.reviewed_at = now_iso
@@ -54,8 +52,6 @@ def review_claim(
         audit_summary = f"Accepted claim '{claim.title[:60]}'"
 
     elif act == "edit_and_accept":
-        if old_state not in {ReviewState.PENDING_REVIEW, ReviewState.NEEDS_CLARIFICATION}:
-            raise ValueError(f"Cannot edit and accept claim in state {old_state.value}")
         if not edited_body or not edited_body.strip():
             raise ValueError("edited_body must be provided for edit_and_accept")
         if not claim.original_body_text:
@@ -70,8 +66,6 @@ def review_claim(
         audit_summary = f"Edited and accepted claim '{claim.title[:60]}'"
 
     elif act == "reject":
-        if old_state not in {ReviewState.PENDING_REVIEW, ReviewState.NEEDS_CLARIFICATION}:
-            raise ValueError(f"Cannot reject claim in state {old_state.value}")
         if not reason or not reason.strip():
             raise ValueError("A clear reason is required when rejecting a claim")
         claim.review_state = ReviewState.REJECTED
@@ -82,8 +76,6 @@ def review_claim(
         audit_summary = f"Rejected claim '{claim.title[:60]}': {reason[:80]}"
 
     elif act == "needs_clarification":
-        if old_state not in {ReviewState.PENDING_REVIEW}:
-            raise ValueError(f"Cannot flag needs_clarification from state {old_state.value}")
         if not reason or not reason.strip():
             raise ValueError("Clarification details/questions required")
         claim.review_state = ReviewState.NEEDS_CLARIFICATION

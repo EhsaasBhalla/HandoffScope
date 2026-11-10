@@ -109,7 +109,7 @@ def get_dashboard_stats(
             db.query(Question)
             .filter(
                 Question.case_id.in_(case_ids),
-                Question.status.in_([QuestionStatus.SUGGESTED, QuestionStatus.OPEN, QuestionStatus.ANSWERED]),
+                Question.status.in_([QuestionStatus.OPEN, QuestionStatus.ANSWERED, QuestionStatus.PENDING_REVIEW, QuestionStatus.DRAFT]),
             )
             .count()
         )
