@@ -33,6 +33,26 @@ class TransferPackUpdate(BaseModel):
     suggested_successor_id: Optional[uuid.UUID] = None
 
 
+class MoveClaimsRequest(BaseModel):
+    claim_id: Optional[uuid.UUID] = None
+    claim_ids: Optional[list[uuid.UUID]] = None
+
+
+class MergePacksRequest(BaseModel):
+    source_pack_id: uuid.UUID
+
+
+class SplitPackRequest(BaseModel):
+    new_pack_name: str
+    claim_ids: list[uuid.UUID]
+    description: Optional[str] = None
+    component_area: Optional[str] = None
+
+
+class TransferPackStatusTransition(BaseModel):
+    status: TransferPackStatus
+
+
 class TransferPackOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

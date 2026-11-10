@@ -9,9 +9,13 @@ import {
   User,
   AlertTriangle,
   ChevronDown,
+  RotateCcw,
+  Ban,
+  FileEdit,
+  FolderKanban,
 } from 'lucide-react';
 import { questionApi } from '../../api/question.api';
-import { caseApi } from '../../api/case.api';
+import { transferPackApi } from '../../api/transferPack.api';
 import { httpClient } from '../../api/httpClient';
 import styles from './questions.module.css';
 
@@ -27,6 +31,8 @@ export default function QuestionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [cases, setCases] = useState([]);
   const [selectedCaseId, setSelectedCaseId] = useState('');
+  const [availablePacks, setAvailablePacks] = useState([]);
+  const [selectedPackId, setSelectedPackId] = useState('');
   const [questionText, setQuestionText] = useState('');
   const [whyItMatters, setWhyItMatters] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
@@ -36,6 +42,15 @@ export default function QuestionsPage() {
     loadQuestions();
     loadCases();
   }, [filterStatus]);
+
+  useEffect(() => {
+    if (selectedCaseId) {
+      loadPacksForCase(selectedCaseId);
+    } else {
+      setAvailablePacks([]);
+      setSelectedPackId('');
+    }
+  }, [selectedCaseId]);
 
   async function loadQuestions() {
     setLoading(true);
@@ -77,6 +92,16 @@ export default function QuestionsPage() {
     }
   }
 
+  async function loadPacksForCase(caseId) {
+    try {
+      const packs = await transferPackApi.listPacks(caseId);
+      setAvailablePacks(Array.isArray(packs) ? packs : []);
+    } catch (err) {
+      console.error('Failed to load packs for case:', err);
+      setAvailablePacks([]);
+    }
+  }
+
   async function handleCreateQuestion(e) {
     e.preventDefault();
     if (!selectedCaseId || !questionText.trim()) return;
@@ -85,6 +110,7 @@ export default function QuestionsPage() {
     try {
       await questionApi.createQuestion(selectedCaseId, {
         case_id: selectedCaseId,
+        transfer_pack_id: selectedPackId || undefined,
         question_text: questionText.trim(),
         why_it_matters: whyItMatters.trim() || undefined,
         priority,
@@ -92,6 +118,7 @@ export default function QuestionsPage() {
       setShowModal(false);
       setQuestionText('');
       setWhyItMatters('');
+      setSelectedPackId('');
       loadQuestions();
     } catch (err) {
       alert('Failed to submit question: ' + (err.response?.data?.detail || err.message));
@@ -118,12 +145,21 @@ export default function QuestionsPage() {
     }
   }
 
-  async function handleReviewResponse(questionId, action) {
+  async function handleReviewResponse(questionId, action, notes) {
     try {
-      await questionApi.reviewResponse(questionId, { action });
+      await questionApi.reviewResponse(questionId, { action, notes });
       loadQuestions();
     } catch (err) {
       alert('Failed to review answer: ' + (err.response?.data?.detail || err.message));
+    }
+  }
+
+  async function handleTransitionQuestion(questionId, newStatus) {
+    try {
+      await questionApi.updateQuestion(questionId, { status: newStatus });
+      loadQuestions();
+    } catch (err) {
+      alert('Failed to update question status: ' + (err.response?.data?.detail || err.message));
     }
   }
 
@@ -148,7 +184,7 @@ export default function QuestionsPage() {
       {/* Filter Toolbar */}
       <div className={styles.toolbar}>
         <div className={styles.filterRow}>
-          {['ALL', 'OPEN', 'ANSWERED', 'RESOLVED'].map((status) => (
+          {['ALL', 'OPEN', 'ANSWERED', 'RESOLVED', 'DISMISSED'].map((status) => (
             <button
               key={status}
               className={`${styles.filterChip} ${filterStatus === status ? styles.activeChip : ''}`}
@@ -185,6 +221,12 @@ export default function QuestionsPage() {
                     {q.case_title && (
                       <span className={styles.caseTag}>
                         Case #{q.case_number || 1}: {q.case_title}
+                      </span>
+                    )}
+                    {q.transfer_pack_name && (
+                      <span className={styles.caseTag} style={{ backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-accent)' }}>
+                        <FolderKanban size={11} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />
+                        {q.transfer_pack_name}
                       </span>
                     )}
                     <span
@@ -262,6 +304,11 @@ export default function QuestionsPage() {
                             </span>
                           </div>
                           <div className={styles.responseText}>{resp.response_text}</div>
+                          {resp.review_notes && (
+                            <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                              Review note: {resp.review_notes}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -301,14 +348,14 @@ export default function QuestionsPage() {
 
                 {/* Actions Row */}
                 <div className={styles.actionRow}>
-                  {!isAnswering && statusUpper !== 'RESOLVED' && (
+                  {!isAnswering && statusUpper !== 'RESOLVED' && statusUpper !== 'DISMISSED' && (
                     <button className={styles.answerBtn} onClick={() => setAnsweringId(q.id)}>
                       <MessageSquare size={13} />
                       {q.responses?.length > 0 ? 'Add Follow-up Answer' : 'Answer Question'}
                     </button>
                   )}
 
-                  {/* If answered and pending review, allow reviewer to accept / reject */}
+                  {/* If answered, allow reviewer to accept / request revision / amend */}
                   {statusUpper === 'ANSWERED' && q.responses?.length > 0 && (
                     <>
                       <button
@@ -326,6 +373,37 @@ export default function QuestionsPage() {
                         Request Revision
                       </button>
                     </>
+                  )}
+
+                  {/* Reopen if resolved or dismissed */}
+                  {(statusUpper === 'RESOLVED' || statusUpper === 'DISMISSED') && (
+                    <button
+                      className={styles.answerBtn}
+                      onClick={() => handleTransitionQuestion(q.id, 'OPEN')}
+                    >
+                      <RotateCcw size={13} /> Reopen Question
+                    </button>
+                  )}
+
+                  {/* Dismiss if open */}
+                  {statusUpper === 'OPEN' && (
+                    <button
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid var(--color-border)',
+                        color: 'var(--color-text-muted)',
+                        padding: 'var(--space-xs) var(--space-md)',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--text-xs)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                      onClick={() => handleTransitionQuestion(q.id, 'DISMISSED')}
+                    >
+                      <Ban size={12} /> Dismiss
+                    </button>
                   )}
                 </div>
               </div>
@@ -353,6 +431,24 @@ export default function QuestionsPage() {
                     {cases.map((c) => (
                       <option key={c.id} value={c.id}>
                         Case #{c.case_number || 1}: {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {availablePacks.length > 0 && (
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Related Transfer Pack (Optional)</label>
+                  <select
+                    className={styles.formSelect}
+                    value={selectedPackId}
+                    onChange={(e) => setSelectedPackId(e.target.value)}
+                  >
+                    <option value="">General (Case-wide knowledge gap)</option>
+                    {availablePacks.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
                       </option>
                     ))}
                   </select>

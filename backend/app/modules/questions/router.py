@@ -9,17 +9,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
+from app.modules.questions.models import QuestionResponse
 from app.modules.questions.schemas import (
     QuestionCreate,
     QuestionOut,
     QuestionResponseCreate,
     QuestionReviewRequest,
+    QuestionUpdate,
 )
 from app.modules.questions.service import (
     add_response,
     create_question,
+    get_question,
     list_questions,
     review_response,
+    update_question,
 )
 
 router = APIRouter(tags=["Questions"])
@@ -83,5 +87,55 @@ def review_question_response(
     """Review (accept or reject) an answer to a question."""
     try:
         return review_response(db, question_id=question_id, user_id=user.id, action=body.action, notes=body.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/questions/{question_id}", response_model=QuestionOut)
+def get_single_question(
+    question_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieve full details of a specific question."""
+    try:
+        return get_question(db, question_id=question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.patch("/questions/{question_id}", response_model=QuestionOut)
+def patch_question(
+    question_id: uuid.UUID,
+    body: QuestionUpdate,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Update question attributes or transition question status."""
+    try:
+        return update_question(db, question_id=question_id, user_id=user.id, data=body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/question-responses/{response_id}/review", response_model=QuestionOut)
+def review_response_direct(
+    response_id: uuid.UUID,
+    body: QuestionReviewRequest,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Review a response directly by response ID."""
+    resp = db.query(QuestionResponse).filter(QuestionResponse.id == response_id).first()
+    if not resp:
+        raise HTTPException(status_code=404, detail="Question response not found")
+    try:
+        return review_response(
+            db,
+            question_id=resp.question_id,
+            user_id=user.id,
+            action=body.action,
+            notes=body.notes,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

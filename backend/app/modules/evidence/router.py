@@ -10,13 +10,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db
+from app.core.dependencies import get_current_active_user, get_db
 from app.db.enums import ClaimType, EvidenceState, ReviewState
+from app.modules.audit.service import create_audit_event
 from app.modules.documents.models import Document
 from app.modules.evidence.models import ClaimEvidence
-from app.modules.evidence.schemas import ClaimDetailOut, ClaimEvidenceOut, ClaimOut
+from app.modules.evidence.schemas import ClaimDetailOut, ClaimEvidenceOut, ClaimOut, ClaimUpdate
 from app.modules.ingestion.models import SourceRecord
 from app.modules.transfer_packs.models import Claim, TransferPack
+from app.modules.workspaces.models import User
 
 router = APIRouter(tags=["evidence"])
 
@@ -166,3 +168,60 @@ def list_claim_evidence(
     )
 
     return [_enrich_evidence_out(ev, db) for ev in evidence_records]
+
+
+@router.patch("/claims/{claim_id}", response_model=ClaimDetailOut)
+def update_claim(
+    claim_id: uuid.UUID,
+    body: ClaimUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Update a claim's text, priority, review state, or evidence state."""
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, val in update_data.items():
+        setattr(claim, field, val)
+
+    create_audit_event(
+        db,
+        actor_id=user.id,
+        action="claim.updated",
+        entity_type="claim",
+        entity_id=claim.id,
+        details={"updated_fields": list(update_data.keys())},
+        summary=f"Updated claim: {claim.title[:60]}",
+    )
+
+    db.commit()
+    db.refresh(claim)
+
+    evidence_records = (
+        db.query(ClaimEvidence)
+        .filter(ClaimEvidence.claim_id == claim.id)
+        .order_by(ClaimEvidence.created_at.asc())
+        .all()
+    )
+    evidence_items = [_enrich_evidence_out(ev, db) for ev in evidence_records]
+
+    return ClaimDetailOut(
+        id=claim.id,
+        transfer_pack_id=claim.transfer_pack_id,
+        claim_type=claim.claim_type,
+        title=claim.title,
+        body_text=claim.body_text,
+        evidence_state=claim.evidence_state,
+        freshness=claim.freshness,
+        review_state=claim.review_state,
+        priority=claim.priority,
+        reviewed_by=claim.reviewed_by,
+        reviewed_at=claim.reviewed_at,
+        extraction_run_id=claim.extraction_run_id,
+        evidence_count=len(evidence_items),
+        created_at=claim.created_at,
+        updated_at=claim.updated_at,
+        evidence=evidence_items,
+    )

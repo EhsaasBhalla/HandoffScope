@@ -12,7 +12,21 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.modules.transfer_packs.models import Claim, TransferPack
-from app.modules.transfer_packs.schemas import TransferPackCreate, TransferPackOut, TransferPackUpdate
+from app.modules.transfer_packs.schemas import (
+    MergePacksRequest,
+    MoveClaimsRequest,
+    SplitPackRequest,
+    TransferPackCreate,
+    TransferPackOut,
+    TransferPackStatusTransition,
+    TransferPackUpdate,
+)
+from app.modules.transfer_packs.service import (
+    merge_packs,
+    move_claims,
+    split_pack,
+    transition_pack_status,
+)
 from app.modules.workspaces.models import User
 
 router = APIRouter(tags=["transfer-packs"])
@@ -112,4 +126,86 @@ def update_transfer_pack(
 
     db.commit()
     db.refresh(pack)
+    return _enrich_pack_out(pack, db)
+
+
+@router.post("/transfer-packs/{pack_id}/claims", response_model=TransferPackOut)
+def move_claims_endpoint(
+    pack_id: uuid.UUID,
+    body: MoveClaimsRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Move one or more claims into this Transfer Pack."""
+    claim_ids = []
+    if body.claim_ids:
+        claim_ids.extend(body.claim_ids)
+    if body.claim_id and body.claim_id not in claim_ids:
+        claim_ids.append(body.claim_id)
+
+    if not claim_ids:
+        raise HTTPException(status_code=400, detail="Must provide claim_id or claim_ids")
+
+    try:
+        move_claims(db, target_pack_id=pack_id, claim_ids=claim_ids, actor_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    pack = db.query(TransferPack).filter(TransferPack.id == pack_id).first()
+    return _enrich_pack_out(pack, db)
+
+
+@router.post("/transfer-packs/{pack_id}/merge", response_model=TransferPackOut)
+def merge_packs_endpoint(
+    pack_id: uuid.UUID,
+    body: MergePacksRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Merge another Transfer Pack into this Transfer Pack."""
+    try:
+        merged = merge_packs(db, target_pack_id=pack_id, source_pack_id=body.source_pack_id, actor_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _enrich_pack_out(merged, db)
+
+
+@router.post("/transfer-packs/{pack_id}/split", response_model=TransferPackOut, status_code=status.HTTP_201_CREATED)
+def split_pack_endpoint(
+    pack_id: uuid.UUID,
+    body: SplitPackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Split claims out of this Transfer Pack into a new Transfer Pack."""
+    try:
+        new_pack = split_pack(
+            db,
+            source_pack_id=pack_id,
+            new_pack_name=body.new_pack_name,
+            claim_ids=body.claim_ids,
+            description=body.description,
+            component_area=body.component_area,
+            actor_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _enrich_pack_out(new_pack, db)
+
+
+@router.post("/transfer-packs/{pack_id}/status", response_model=TransferPackOut)
+def transition_pack_status_endpoint(
+    pack_id: uuid.UUID,
+    body: TransferPackStatusTransition,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Transition a Transfer Pack status with state machine enforcement."""
+    try:
+        pack = transition_pack_status(db, pack_id=pack_id, new_status=body.status, actor_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     return _enrich_pack_out(pack, db)

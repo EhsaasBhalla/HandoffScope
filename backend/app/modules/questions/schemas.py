@@ -28,6 +28,17 @@ class QuestionCreate(BaseModel):
     due_date: Optional[str] = None
 
 
+class QuestionUpdate(BaseModel):
+    question_text: Optional[str] = None
+    why_it_matters: Optional[str] = None
+    transfer_pack_id: Optional[uuid.UUID] = None
+    claim_id: Optional[uuid.UUID] = None
+    assigned_to_id: Optional[uuid.UUID] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[str] = None
+
+
 class QuestionResponseOut(BaseModel):
     id: uuid.UUID
     question_id: uuid.UUID

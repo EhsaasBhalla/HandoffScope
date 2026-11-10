@@ -124,3 +124,39 @@
   letter-spacing: 0.05em;
   margin: 0;
 }
+
+.actionsGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.actionBtn:hover {
+  background-color: var(--color-bg-elevated);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+.moveSelect {
+  font-size: 11px;
+  padding: 3px 6px;
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}

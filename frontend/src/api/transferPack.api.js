@@ -9,4 +9,16 @@ export const transferPackApi = {
     httpClient.post(`/api/v1/cases/${caseId}/transfer-packs`, data),
   updatePack: (packId, data) =>
     httpClient.patch(`/api/v1/transfer-packs/${packId}`, data),
+  moveClaims: (packId, claimIds) =>
+    httpClient.post(`/api/v1/transfer-packs/${packId}/claims`, {
+      claim_ids: Array.isArray(claimIds) ? claimIds : [claimIds],
+    }),
+  mergePacks: (packId, sourcePackId) =>
+    httpClient.post(`/api/v1/transfer-packs/${packId}/merge`, {
+      source_pack_id: sourcePackId,
+    }),
+  splitPack: (packId, data) =>
+    httpClient.post(`/api/v1/transfer-packs/${packId}/split`, data),
+  transitionStatus: (packId, status) =>
+    httpClient.post(`/api/v1/transfer-packs/${packId}/status`, { status }),
 };

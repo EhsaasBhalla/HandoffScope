@@ -57,3 +57,11 @@ class ClaimOut(BaseModel):
 
 class ClaimDetailOut(ClaimOut):
     evidence: list[ClaimEvidenceOut] = []
+
+
+class ClaimUpdate(BaseModel):
+    title: Optional[str] = None
+    body_text: Optional[str] = None
+    priority: Optional[Priority] = None
+    review_state: Optional[ReviewState] = None
+    evidence_state: Optional[EvidenceState] = None

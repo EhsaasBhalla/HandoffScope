@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   FolderKanban,
@@ -11,9 +11,17 @@ import {
   HelpCircle,
   FileStack,
   Layers,
+  Settings,
+  Plus,
+  GitMerge,
+  ArrowRight,
+  UserCheck,
+  MessageSquare,
+  AlertCircle,
 } from 'lucide-react';
 import { transferPackApi } from '../../api/transferPack.api';
 import { evidenceApi } from '../../api/evidence.api';
+import { questionApi } from '../../api/question.api';
 import { ClaimCard } from '../../components/claim-card/claim-card';
 import styles from './transfer-pack-detail.module.css';
 
@@ -30,7 +38,26 @@ const CLAIM_TYPES = [
 
 export default function TransferPackDetailPage() {
   const { caseId, packId } = useParams();
+  const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState('ALL');
+
+  // Modals state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showQuestionModal, setShowQuestionModal] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+
+  // Edit Pack form
+  const [packName, setPackName] = useState('');
+  const [packDesc, setPackDesc] = useState('');
+  const [packArea, setPackArea] = useState('');
+
+  // Ask Question form
+  const [qText, setQText] = useState('');
+  const [qWhy, setQWhy] = useState('');
+  const [qPriority, setQPriority] = useState('MEDIUM');
+
+  // Merge form
+  const [sourcePackIdToMerge, setSourcePackIdToMerge] = useState('');
 
   // 1. Fetch Transfer Pack details
   const { data: pack, isLoading: packLoading } = useQuery({
@@ -39,11 +66,84 @@ export default function TransferPackDetailPage() {
     enabled: !!packId,
   });
 
-  // 2. Fetch all claims for this pack
+  // 2. Fetch all packs for the case (for moving claims and merging)
+  const { data: allPacks } = useQuery({
+    queryKey: ['case-packs', caseId],
+    queryFn: () => transferPackApi.listPacks(caseId),
+    enabled: !!caseId,
+  });
+
+  // 3. Fetch all claims for this pack
   const { data: claims, isLoading: claimsLoading } = useQuery({
     queryKey: ['pack-claims', packId],
     queryFn: () => evidenceApi.listClaimsForPack(packId),
     enabled: !!packId,
+  });
+
+  // 4. Fetch questions linked to this pack or case
+  const { data: packQuestions } = useQuery({
+    queryKey: ['pack-questions', packId],
+    queryFn: async () => {
+      const qs = await questionApi.listQuestions({ case_id: caseId });
+      const list = Array.isArray(qs) ? qs : qs?.data || [];
+      return list.filter((q) => q.transfer_pack_id === packId);
+    },
+    enabled: !!caseId && !!packId,
+  });
+
+  // Mutations
+  const updatePackMutation = useMutation({
+    mutationFn: (data) => transferPackApi.updatePack(packId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      setShowEditModal(false);
+    },
+  });
+
+  const transitionStatusMutation = useMutation({
+    mutationFn: (status) => transferPackApi.transitionStatus(packId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+    },
+  });
+
+  const moveClaimMutation = useMutation({
+    mutationFn: ({ claimId, targetPackId }) =>
+      transferPackApi.moveClaims(targetPackId, claimId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+    },
+  });
+
+  const updateClaimMutation = useMutation({
+    mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+    },
+  });
+
+  const mergePacksMutation = useMutation({
+    mutationFn: (sourcePackId) => transferPackApi.mergePacks(packId, sourcePackId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      setShowMergeModal(false);
+    },
+  });
+
+  const askQuestionMutation = useMutation({
+    mutationFn: (data) => questionApi.createQuestion(caseId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-questions', packId] });
+      setShowQuestionModal(false);
+      setQText('');
+      setQWhy('');
+    },
   });
 
   // Calculate evidence state breakdown
@@ -65,6 +165,28 @@ export default function TransferPackDetailPage() {
     return claims.filter((c) => c.claim_type === selectedType);
   }, [claims, selectedType]);
 
+  const openEditModal = () => {
+    if (pack) {
+      setPackName(pack.name);
+      setPackDesc(pack.description || '');
+      setPackArea(pack.component_area || '');
+    }
+    setShowEditModal(true);
+  };
+
+  const getNextStatusAction = (currentStatus) => {
+    switch (currentStatus) {
+      case 'DRAFT':
+        return { label: 'Ready for Review', target: 'READY_FOR_REVIEW' };
+      case 'READY_FOR_REVIEW':
+        return { label: 'Begin Review', target: 'UNDER_REVIEW' };
+      case 'UNDER_REVIEW':
+        return { label: 'Approve Pack', target: 'APPROVED' };
+      default:
+        return null;
+    }
+  };
+
   if (packLoading) {
     return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>Loading Transfer Pack…</div>;
   }
@@ -77,6 +199,8 @@ export default function TransferPackDetailPage() {
       </div>
     );
   }
+
+  const nextStatus = getNextStatusAction(pack.status);
 
   return (
     <div className={styles.container}>
@@ -94,9 +218,35 @@ export default function TransferPackDetailPage() {
               {pack.component_area && (
                 <span className={styles.areaBadge}>{pack.component_area}</span>
               )}
-              <span className={styles.areaBadge}>{pack.status}</span>
+              <span className={styles.statusBadge}>{pack.status}</span>
+              {pack.is_blocked && (
+                <span className={styles.blockedBadge}>
+                  <AlertCircle size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  Blocked: {pack.blocked_reason || 'Action required'}
+                </span>
+              )}
             </div>
             <p className={styles.packDesc}>{pack.description || 'No description provided.'}</p>
+          </div>
+
+          <div className={styles.headerActions}>
+            <button className={styles.actionButton} onClick={openEditModal}>
+              <Settings size={14} /> Edit Pack
+            </button>
+            {allPacks && allPacks.length > 1 && (
+              <button className={styles.actionButton} onClick={() => setShowMergeModal(true)}>
+                <GitMerge size={14} /> Merge Pack
+              </button>
+            )}
+            {nextStatus && (
+              <button
+                className={`${styles.actionButton} ${styles.primaryBtn}`}
+                onClick={() => transitionStatusMutation.mutate(nextStatus.target)}
+                disabled={transitionStatusMutation.isPending}
+              >
+                <CheckCircle2 size={14} /> {nextStatus.label}
+              </button>
+            )}
           </div>
         </div>
 
@@ -108,6 +258,10 @@ export default function TransferPackDetailPage() {
           <div className={styles.metaItem}>
             <span className={styles.metaLabel}>Suggested Successor</span>
             <span className={styles.metaValue}>{pack.suggested_successor_name || 'Pending assignment'}</span>
+          </div>
+          <div className={styles.metaItem}>
+            <span className={styles.metaLabel}>Claims Count</span>
+            <span className={styles.metaValue}>{stats.total} Grounded Units</span>
           </div>
           <div className={styles.metaItem}>
             <span className={styles.metaLabel}>Created Date</span>
@@ -170,13 +324,225 @@ export default function TransferPackDetailPage() {
         <div className={styles.emptyState}>
           <Layers size={32} />
           <h3>No claims found in this category</h3>
-          <p>Select "All Claims" or run AI reconstruction to generate additional claims.</p>
+          <p>Select "All Claims" or edit claims to assign them to this category.</p>
         </div>
       ) : (
         <div className={styles.claimsList}>
           {filteredClaims.map((claim) => (
-            <ClaimCard key={claim.id} claim={claim} />
+            <ClaimCard
+              key={claim.id}
+              claim={claim}
+              availablePacks={allPacks || []}
+              onMoveClaim={(claimId, targetPackId) =>
+                moveClaimMutation.mutate({ claimId, targetPackId })
+              }
+              onUpdateClaim={(claimId, data) =>
+                updateClaimMutation.mutate({ claimId, data })
+              }
+            />
           ))}
+        </div>
+      )}
+
+      {/* Knowledge Gaps & Questions Section */}
+      <div className={styles.questionsSection}>
+        <div className={styles.questionsHeader}>
+          <h3 className={styles.questionsTitle}>
+            <HelpCircle size={18} style={{ color: 'var(--color-accent)' }} />
+            Knowledge Gap Questions ({packQuestions?.length || 0})
+          </h3>
+          <button
+            className={`${styles.actionButton} ${styles.primaryBtn}`}
+            onClick={() => setShowQuestionModal(true)}
+          >
+            <Plus size={14} /> Ask Question for this Pack
+          </button>
+        </div>
+
+        {packQuestions && packQuestions.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+            {packQuestions.map((q) => (
+              <div key={q.id} className={styles.questionItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--color-text-primary)' }}>
+                    {q.question_text}
+                  </span>
+                  <span className={styles.statusBadge}>{q.status}</span>
+                </div>
+                {q.why_it_matters && (
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    {q.why_it_matters}
+                  </p>
+                )}
+                {q.responses && q.responses.length > 0 && (
+                  <div style={{ marginTop: '6px', padding: '8px', backgroundColor: 'var(--color-bg-primary)', borderRadius: '4px', fontSize: '12px' }}>
+                    <strong>Latest Answer:</strong> {q.responses[q.responses.length - 1].response_text}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', margin: 0 }}>
+            No targeted questions currently attached to this Transfer Pack.
+          </p>
+        )}
+      </div>
+
+      {/* Edit Pack Modal */}
+      {showEditModal && (
+        <div className={styles.modalBackdrop} onClick={() => setShowEditModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Edit Transfer Pack</h3>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Pack Name</label>
+              <input
+                type="text"
+                className={styles.formInput}
+                value={packName}
+                onChange={(e) => setPackName(e.target.value)}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Component Area</label>
+              <input
+                type="text"
+                className={styles.formInput}
+                value={packArea}
+                onChange={(e) => setPackArea(e.target.value)}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Scope Description</label>
+              <textarea
+                rows={3}
+                className={styles.formTextarea}
+                value={packDesc}
+                onChange={(e) => setPackDesc(e.target.value)}
+              />
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.actionButton} onClick={() => setShowEditModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.actionButton} ${styles.primaryBtn}`}
+                onClick={() =>
+                  updatePackMutation.mutate({
+                    name: packName,
+                    component_area: packArea,
+                    description: packDesc,
+                  })
+                }
+                disabled={updatePackMutation.isPending}
+              >
+                {updatePackMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Merge Pack Modal */}
+      {showMergeModal && (
+        <div className={styles.modalBackdrop} onClick={() => setShowMergeModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Merge Transfer Pack</h3>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '13px', margin: 0 }}>
+              Select a Transfer Pack to merge into <strong>{pack.name}</strong>. All claims will be consolidated here and the source pack will be deleted.
+            </p>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Source Pack to Merge</label>
+              <select
+                className={styles.formSelect}
+                value={sourcePackIdToMerge}
+                onChange={(e) => setSourcePackIdToMerge(e.target.value)}
+              >
+                <option value="">Select a pack...</option>
+                {allPacks
+                  ?.filter((p) => p.id !== pack.id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.claims_count} claims)
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.actionButton} onClick={() => setShowMergeModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.actionButton} ${styles.primaryBtn}`}
+                disabled={!sourcePackIdToMerge || mergePacksMutation.isPending}
+                onClick={() => mergePacksMutation.mutate(sourcePackIdToMerge)}
+              >
+                {mergePacksMutation.isPending ? 'Merging...' : 'Confirm Merge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ask Question Modal */}
+      {showQuestionModal && (
+        <div className={styles.modalBackdrop} onClick={() => setShowQuestionModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Ask Question for {pack.name}</h3>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Question Text</label>
+              <textarea
+                rows={3}
+                className={styles.formTextarea}
+                placeholder="e.g. What edge cases should the successor know about when upgrading this service?"
+                value={qText}
+                onChange={(e) => setQText(e.target.value)}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Why It Matters</label>
+              <textarea
+                rows={2}
+                className={styles.formTextarea}
+                placeholder="Explain the operational or architectural risk..."
+                value={qWhy}
+                onChange={(e) => setQWhy(e.target.value)}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Priority</label>
+              <select
+                className={styles.formSelect}
+                value={qPriority}
+                onChange={(e) => setQPriority(e.target.value)}
+              >
+                <option value="CRITICAL">Critical</option>
+                <option value="HIGH">High</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="LOW">Low</option>
+              </select>
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.actionButton} onClick={() => setShowQuestionModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.actionButton} ${styles.primaryBtn}`}
+                disabled={!qText.trim() || askQuestionMutation.isPending}
+                onClick={() =>
+                  askQuestionMutation.mutate({
+                    case_id: caseId,
+                    transfer_pack_id: packId,
+                    question_text: qText.trim(),
+                    why_it_matters: qWhy.trim() || undefined,
+                    priority: qPriority,
+                  })
+                }
+              >
+                {askQuestionMutation.isPending ? 'Submitting...' : 'Submit Question'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
