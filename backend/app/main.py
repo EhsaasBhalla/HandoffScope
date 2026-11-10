@@ -28,12 +28,23 @@ async def lifespan(app: FastAPI):
     import app.modules.questions.models  # noqa: F401
     import app.modules.identity.models  # noqa: F401
     import app.modules.evidence.models  # noqa: F401
+    import app.modules.reviews.models  # noqa: F401
 
     try:
         # Ensure new columns exist on existing databases
         with engine.connect() as conn:
             try:
                 conn.execute(text("ALTER TABLE source_records ADD COLUMN author_mapped_user_id VARCHAR(36)"))
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE claims ADD COLUMN original_body_text TEXT"))
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE claims ADD COLUMN review_notes TEXT"))
                 conn.commit()
             except Exception:
                 pass

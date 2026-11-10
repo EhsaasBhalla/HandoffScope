@@ -43,6 +43,8 @@ class ClaimOut(BaseModel):
     claim_type: ClaimType
     title: str
     body_text: Optional[str] = None
+    original_body_text: Optional[str] = None
+    review_notes: Optional[str] = None
     evidence_state: EvidenceState
     freshness: Freshness
     review_state: ReviewState
@@ -65,3 +67,9 @@ class ClaimUpdate(BaseModel):
     priority: Optional[Priority] = None
     review_state: Optional[ReviewState] = None
     evidence_state: Optional[EvidenceState] = None
+
+
+class ReviewClaimRequest(BaseModel):
+    action: str  # "accept" | "edit_and_accept" | "reject" | "needs_clarification" | "resubmit"
+    edited_body: Optional[str] = None
+    reason: Optional[str] = None

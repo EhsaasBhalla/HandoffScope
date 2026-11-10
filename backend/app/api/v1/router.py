@@ -17,6 +17,7 @@ from app.modules.reconstruction.router import router as reconstruction_router
 from app.modules.evidence.router import router as evidence_router
 from app.modules.transfer_packs.router import router as transfer_packs_router
 from app.modules.questions.router import router as questions_router
+from app.modules.reviews.router import router as reviews_router
 
 router = APIRouter()
 
@@ -46,3 +47,6 @@ router.include_router(transfer_packs_router)
 
 # ── Phase 7: Questions & Answers ──────────────────────────────
 router.include_router(questions_router)
+
+# ── Phase 8: Review & Approval ────────────────────────────────
+router.include_router(reviews_router)

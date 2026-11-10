@@ -160,3 +160,61 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+
+.reviewToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  padding-top: var(--space-xs);
+  border-top: 1px dashed var(--color-border);
+}
+
+.reviewBtnAccept {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.reviewBtnAccept:hover {
+  background-color: rgba(16, 185, 129, 0.25);
+}
+
+.reviewBtnReject {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.reviewBtnReject:hover {
+  background-color: rgba(239, 68, 68, 0.25);
+}
+
+.reviewBtnClarify {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.reviewBtnClarify:hover {
+  background-color: rgba(245, 158, 11, 0.25);
+}
+
+.originalBodyBox {
+  background-color: var(--color-bg-primary);
+  border-left: 3px solid var(--color-accent);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.notesBox {
+  background-color: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #fca5a5;
+}
+

@@ -63,6 +63,64 @@ def _enrich_evidence_out(ev: ClaimEvidence, db: Session) -> ClaimEvidenceOut:
     )
 
 
+@router.get("/cases/{case_id}/claims", response_model=list[ClaimOut])
+def list_case_claims(
+    case_id: uuid.UUID,
+    claim_type: ClaimType | None = Query(default=None),
+    evidence_state: EvidenceState | None = Query(default=None),
+    review_state: ReviewState | None = Query(default=None),
+    transfer_pack_id: uuid.UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """List all claims belonging to a Handover Case across all its Transfer Packs."""
+    packs = db.query(TransferPack).filter(TransferPack.case_id == case_id).all()
+    if not packs:
+        return []
+
+    pack_ids = [p.id for p in packs]
+    if transfer_pack_id:
+        if transfer_pack_id in pack_ids:
+            pack_ids = [transfer_pack_id]
+        else:
+            return []
+
+    query = db.query(Claim).filter(Claim.transfer_pack_id.in_(pack_ids))
+    if claim_type:
+        query = query.filter(Claim.claim_type == claim_type)
+    if evidence_state:
+        query = query.filter(Claim.evidence_state == evidence_state)
+    if review_state:
+        query = query.filter(Claim.review_state == review_state)
+
+    claims = query.order_by(Claim.created_at.desc()).all()
+
+    result = []
+    for c in claims:
+        ev_count = db.query(ClaimEvidence).filter(ClaimEvidence.claim_id == c.id).count()
+        result.append(
+            ClaimOut(
+                id=c.id,
+                transfer_pack_id=c.transfer_pack_id,
+                claim_type=c.claim_type,
+                title=c.title,
+                body_text=c.body_text,
+                original_body_text=c.original_body_text,
+                review_notes=c.review_notes,
+                evidence_state=c.evidence_state,
+                freshness=c.freshness,
+                review_state=c.review_state,
+                priority=c.priority,
+                reviewed_by=c.reviewed_by,
+                reviewed_at=c.reviewed_at,
+                extraction_run_id=c.extraction_run_id,
+                evidence_count=ev_count,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+            )
+        )
+    return result
+
+
 @router.get("/transfer-packs/{pack_id}/claims", response_model=list[ClaimOut])
 def list_pack_claims(
     pack_id: uuid.UUID,
@@ -96,6 +154,8 @@ def list_pack_claims(
                 claim_type=c.claim_type,
                 title=c.title,
                 body_text=c.body_text,
+                original_body_text=c.original_body_text,
+                review_notes=c.review_notes,
                 evidence_state=c.evidence_state,
                 freshness=c.freshness,
                 review_state=c.review_state,
@@ -136,6 +196,8 @@ def get_claim_detail(
         claim_type=claim.claim_type,
         title=claim.title,
         body_text=claim.body_text,
+        original_body_text=claim.original_body_text,
+        review_notes=claim.review_notes,
         evidence_state=claim.evidence_state,
         freshness=claim.freshness,
         review_state=claim.review_state,
@@ -213,6 +275,8 @@ def update_claim(
         claim_type=claim.claim_type,
         title=claim.title,
         body_text=claim.body_text,
+        original_body_text=claim.original_body_text,
+        review_notes=claim.review_notes,
         evidence_state=claim.evidence_state,
         freshness=claim.freshness,
         review_state=claim.review_state,

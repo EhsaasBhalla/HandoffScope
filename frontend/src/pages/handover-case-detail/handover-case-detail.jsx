@@ -14,11 +14,16 @@ import {
   Share2,
   History,
   Lock,
+  Eye,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 import { caseApi } from '../../api/case.api';
 import { evidenceApi } from '../../api/evidence.api';
 import { transferPackApi } from '../../api/transferPack.api';
 import { questionApi } from '../../api/question.api';
+import { reviewApi } from '../../api/review.api';
+import { ClaimCard } from '../../components/claim-card/claim-card';
 import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle } from 'lucide-react';
 import styles from './handover-case-detail.module.css';
 
@@ -55,6 +60,12 @@ export default function HandoverCaseDetailPage() {
   const [answeringQId, setAnsweringQId] = useState(null);
   const [ansText, setAnsText] = useState('');
 
+  // Review & Approval state (Phase 8)
+  const [reviewFilter, setReviewFilter] = useState('ALL');
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [amendmentReason, setAmendmentReason] = useState('');
+  const [inspectSnapshot, setInspectSnapshot] = useState(null);
+
   const { data: caseData, isLoading } = useQuery({
     queryKey: ['case', caseId],
     queryFn: () => caseApi.getCase(caseId),
@@ -71,6 +82,62 @@ export default function HandoverCaseDetailPage() {
     queryKey: ['case-questions', caseId],
     queryFn: () => questionApi.listCaseQuestions(caseId),
     enabled: !!caseId,
+  });
+
+  // Phase 8 Review & Versions Queries
+  const { data: queueSummary } = useQuery({
+    queryKey: ['review-queue-summary', caseId],
+    queryFn: () => reviewApi.getReviewQueue(caseId),
+    enabled: !!caseId,
+  });
+
+  const { data: caseClaims, isLoading: claimsLoading } = useQuery({
+    queryKey: ['case-claims', caseId],
+    queryFn: () => evidenceApi.listClaimsForCase(caseId),
+    enabled: !!caseId && (activeTab === 'review' || activeTab === 'overview'),
+  });
+
+  const { data: versions } = useQuery({
+    queryKey: ['case-versions', caseId],
+    queryFn: () => reviewApi.listVersions(caseId),
+    enabled: !!caseId && (activeTab === 'versions' || activeTab === 'review'),
+  });
+
+  const reviewClaimMutation = useMutation({
+    mutationFn: ({ claimId, data }) => reviewApi.reviewClaim(claimId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+    },
+  });
+
+  const createVersionMutation = useMutation({
+    mutationFn: (data) => reviewApi.createVersion(caseId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-versions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      setShowApproveModal(false);
+      setAmendmentReason('');
+      setActiveTab('versions');
+    },
+  });
+
+  const moveClaimMutation = useMutation({
+    mutationFn: ({ claimId, targetPackId }) =>
+      transferPackApi.moveClaims(targetPackId, claimId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+    },
+  });
+
+  const updateClaimMutation = useMutation({
+    mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+    },
   });
 
   const createQuestionMutation = useMutation({
@@ -571,18 +638,198 @@ export default function HandoverCaseDetailPage() {
         )}
 
         {activeTab === 'review' && (
-          <div className={styles.placeholderTab}>
-            <CheckSquare size={32} />
-            <h3>Review & Approvals</h3>
-            <p>Review checklists and immutable version snapshots will appear here (Phase 8).</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+            {/* Review Summary Stats */}
+            <div className={styles.reviewStatsGrid}>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Total Claims</span>
+                <span className={styles.reviewStatVal}>{queueSummary?.total_claims ?? 0}</span>
+              </div>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Pending Review</span>
+                <span className={styles.reviewStatVal} style={{ color: '#fbbf24' }}>
+                  {queueSummary?.pending_review_count ?? 0}
+                </span>
+              </div>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Accepted</span>
+                <span className={styles.reviewStatVal} style={{ color: '#34d399' }}>
+                  {(queueSummary?.accepted_count || 0) + (queueSummary?.edited_and_accepted_count || 0)}
+                </span>
+              </div>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Clarifications</span>
+                <span className={styles.reviewStatVal} style={{ color: '#60a5fa' }}>
+                  {queueSummary?.needs_clarification_count ?? 0}
+                </span>
+              </div>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Rejected</span>
+                <span className={styles.reviewStatVal} style={{ color: '#f87171' }}>
+                  {queueSummary?.rejected_count ?? 0}
+                </span>
+              </div>
+            </div>
+
+            {/* Approval Readiness Banner */}
+            {queueSummary && (
+              <div
+                className={`${styles.readinessBanner} ${
+                  queueSummary.can_approve ? styles.readinessReady : styles.readinessBlocked
+                }`}
+              >
+                <div className={styles.readinessInfo}>
+                  {queueSummary.can_approve ? (
+                    <CheckCircle2 size={22} style={{ color: '#34d399', flexShrink: 0, marginTop: '2px' }} />
+                  ) : (
+                    <AlertTriangle size={22} style={{ color: '#fbbf24', flexShrink: 0, marginTop: '2px' }} />
+                  )}
+                  <div>
+                    <div className={styles.readinessTitle}>
+                      {queueSummary.can_approve
+                        ? 'All Review Preconditions Satisfied'
+                        : 'Approval Preconditions Pending'}
+                    </div>
+                    {queueSummary.can_approve ? (
+                      <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                        All transfer packs and claims have been verified. You may freeze an immutable version snapshot (v
+                        {(queueSummary.current_version_number || 0) + 1}).
+                      </p>
+                    ) : (
+                      <ul className={styles.blockingList}>
+                        {queueSummary.blocking_reasons.map((r, i) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  className={styles.approveBtn}
+                  onClick={() => setShowApproveModal(true)}
+                  disabled={!queueSummary.can_approve || createVersionMutation.isPending}
+                >
+                  <ShieldCheck size={14} /> Approve Version Snapshot
+                </button>
+              </div>
+            )}
+
+            {/* Filter Chips */}
+            <div className={styles.filterChipsRow}>
+              {[
+                { id: 'ALL', label: 'All Claims' },
+                { id: 'PENDING_REVIEW', label: 'Pending Review' },
+                { id: 'ACCEPTED', label: 'Accepted' },
+                { id: 'EDITED_AND_ACCEPTED', label: 'Edited & Accepted' },
+                { id: 'NEEDS_CLARIFICATION', label: 'Needs Clarification' },
+                { id: 'REJECTED', label: 'Rejected' },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  className={`${styles.filterChip} ${reviewFilter === f.id ? styles.filterChipActive : ''}`}
+                  onClick={() => setReviewFilter(f.id)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Claims Review List */}
+            {claimsLoading ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                Loading claims for review…
+              </div>
+            ) : !caseClaims || caseClaims.length === 0 ? (
+              <div className={styles.placeholderTab}>
+                <Layers size={32} />
+                <h3>No Claims Found</h3>
+                <p>Run reconstruction or add transfer packs to start generating claims.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                {caseClaims
+                  .filter((c) => reviewFilter === 'ALL' || c.review_state === reviewFilter)
+                  .map((claim) => (
+                    <ClaimCard
+                      key={claim.id}
+                      claim={claim}
+                      availablePacks={packs || []}
+                      enableReview={true}
+                      onReviewClaim={(claimId, data) => reviewClaimMutation.mutateAsync({ claimId, data })}
+                      onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
+                      onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
+                    />
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'versions' && (
-          <div className={styles.placeholderTab}>
-            <History size={32} />
-            <h3>Version History</h3>
-            <p>Immutable snapshot history and changelogs will appear here (Phase 8).</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)' }}>
+                  Approved Version History ({versions?.length || 0})
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                  Immutable audit snapshots capturing the verified state of all knowledge areas and claims.
+                </p>
+              </div>
+            </div>
+
+            {!versions || versions.length === 0 ? (
+              <div className={styles.placeholderTab}>
+                <ShieldCheck size={32} />
+                <h3>No Approved Versions Yet</h3>
+                <p>Complete the review queue and approve all claims to freeze version 1.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                {versions.map((v) => (
+                  <div key={v.id} className={styles.versionCard}>
+                    <div className={styles.versionTop}>
+                      <div className={styles.versionBadge}>
+                        <span>Version {v.version_number}</span>
+                        {v.is_current ? (
+                          <span className={styles.currentPill}>Current Active</span>
+                        ) : (
+                          <span className={styles.supersededPill}>Superseded</span>
+                        )}
+                      </div>
+                      <div className={styles.versionMeta}>
+                        <span>Approved by {v.approved_by_name || 'Reviewer'}</span>
+                        <span>•</span>
+                        <span>{new Date(v.approved_at).toLocaleString()}</span>
+                        <span>•</span>
+                        <span>{v.total_packs} Packs</span>
+                        <span>•</span>
+                        <span>{v.total_claims} Claims</span>
+                      </div>
+                    </div>
+
+                    {v.amendment_reason && (
+                      <div className={styles.versionReason}>
+                        <strong>Amendment Reason:</strong> {v.amendment_reason}
+                      </div>
+                    )}
+
+                    <div>
+                      <button
+                        className={styles.btnActionSm}
+                        onClick={async () => {
+                          const detail = await reviewApi.getVersion(v.id);
+                          setInspectSnapshot(detail);
+                        }}
+                      >
+                        <Eye size={12} /> View Frozen Snapshot JSON
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -737,6 +984,86 @@ export default function HandoverCaseDetailPage() {
                 disabled={blockMutation.isPending}
               >
                 {blockMutation.isPending ? 'Blocking…' : 'Block Case'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approve Version Modal */}
+      {showApproveModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowApproveModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Approve Handover Version Snapshot</h3>
+            <p className={styles.modalSubtitle}>
+              Approving creates an immutable audit snapshot of all Transfer Packs, verified claims, and evidence bindings.
+              Case status will transition to <strong>APPROVED</strong>.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Amendment / Approval Reason (Optional)
+              </label>
+              <textarea
+                rows={3}
+                placeholder="e.g. Lead verification complete; architecture and runbooks approved."
+                value={amendmentReason}
+                onChange={(e) => setAmendmentReason(e.target.value)}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setShowApproveModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+                disabled={createVersionMutation.isPending}
+                onClick={() =>
+                  createVersionMutation.mutate({
+                    amendment_reason: amendmentReason.trim() || undefined,
+                  })
+                }
+              >
+                <ShieldCheck size={14} />
+                {createVersionMutation.isPending ? 'Freezing Snapshot…' : 'Freeze Approved Version'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Inspection Modal */}
+      {inspectSnapshot && (
+        <div className={styles.modalOverlay} onClick={() => setInspectSnapshot(null)}>
+          <div className={styles.modal} style={{ maxWidth: '800px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>Frozen Snapshot — Version {inspectSnapshot.version_number}</h3>
+              <button className={styles.cancelBtn} onClick={() => setInspectSnapshot(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p className={styles.modalSubtitle}>
+              Approved {new Date(inspectSnapshot.approved_at).toLocaleString()} by {inspectSnapshot.approved_by_name}
+            </p>
+            <pre className={styles.jsonViewer}>
+              {JSON.stringify(inspectSnapshot.snapshot_json, null, 2)}
+            </pre>
+            <div className={styles.modalActions}>
+              <button
+                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                onClick={() => setInspectSnapshot(null)}
+              >
+                Close Snapshot
               </button>
             </div>
           </div>

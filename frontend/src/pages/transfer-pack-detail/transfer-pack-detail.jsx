@@ -22,6 +22,7 @@ import {
 import { transferPackApi } from '../../api/transferPack.api';
 import { evidenceApi } from '../../api/evidence.api';
 import { questionApi } from '../../api/question.api';
+import { reviewApi } from '../../api/review.api';
 import { ClaimCard } from '../../components/claim-card/claim-card';
 import styles from './transfer-pack-detail.module.css';
 
@@ -123,6 +124,16 @@ export default function TransferPackDetailPage() {
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+    },
+  });
+
+  const reviewClaimMutation = useMutation({
+    mutationFn: ({ claimId, data }) => reviewApi.reviewClaim(claimId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
     },
   });
 
@@ -338,6 +349,10 @@ export default function TransferPackDetailPage() {
               }
               onUpdateClaim={(claimId, data) =>
                 updateClaimMutation.mutate({ claimId, data })
+              }
+              enableReview={true}
+              onReviewClaim={(claimId, data) =>
+                reviewClaimMutation.mutateAsync({ claimId, data })
               }
             />
           ))}

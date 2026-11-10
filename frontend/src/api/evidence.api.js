@@ -7,6 +7,15 @@ export const evidenceApi = {
     httpClient.get(`/api/v1/cases/${caseId}/extraction-runs`),
   getExtractionRun: (runId) =>
     httpClient.get(`/api/v1/extraction-runs/${runId}`),
+  listClaimsForCase: (caseId, params = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
+    const url = query
+      ? `/api/v1/cases/${caseId}/claims?${query}`
+      : `/api/v1/cases/${caseId}/claims`;
+    return httpClient.get(url);
+  },
   listClaimsForPack: (packId, params = {}) => {
     const query = new URLSearchParams(
       Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')

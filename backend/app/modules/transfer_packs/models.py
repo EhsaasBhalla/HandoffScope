@@ -75,6 +75,8 @@ class Claim(Base, UUIDMixin, TimestampMixin):
     )
     title = Column(String(500), nullable=False)
     body_text = Column(Text, nullable=True)
+    original_body_text = Column(Text, nullable=True)
+    review_notes = Column(Text, nullable=True)
     evidence_state = Column(
         Enum(EvidenceState, name="evidence_state_enum"),
         default=EvidenceState.UNKNOWN,

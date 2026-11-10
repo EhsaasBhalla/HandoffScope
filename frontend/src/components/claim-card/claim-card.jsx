@@ -15,6 +15,10 @@ import {
   Edit2,
   Check,
   X,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  History,
 } from 'lucide-react';
 import { evidenceApi } from '../../api/evidence.api';
 import { EvidenceStateBadge } from '../evidence-state-badge/evidence-state-badge';
@@ -23,13 +27,26 @@ import { ReviewStateBadge } from '../review-state-badge/review-state-badge';
 import { EvidenceCard } from '../evidence-card/evidence-card';
 import styles from './claim-card.module.css';
 
-export function ClaimCard({ claim, availablePacks = [], onMoveClaim, onUpdateClaim }) {
+export function ClaimCard({
+  claim,
+  availablePacks = [],
+  onMoveClaim,
+  onUpdateClaim,
+  enableReview = false,
+  onReviewClaim,
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(claim.title);
   const [editBody, setEditBody] = useState(claim.body_text || '');
   const [editPriority, setEditPriority] = useState(claim.priority || 'MEDIUM');
+
+  // Review action modal/input state
+  const [reviewMode, setReviewMode] = useState(null); // 'reject' | 'clarify' | 'edit_and_accept'
+  const [reviewReason, setReviewReason] = useState('');
+  const [reviewEditedBody, setReviewEditedBody] = useState(claim.body_text || '');
+  const [showOriginal, setShowOriginal] = useState(false);
 
   // Fetch full evidence items if expanded
   const { data: claimDetail, isLoading: evidenceLoading } = useQuery({
@@ -76,6 +93,43 @@ export function ClaimCard({ claim, availablePacks = [], onMoveClaim, onUpdateCla
       await onMoveClaim(claim.id, targetPackId);
     }
     setIsMoving(false);
+  };
+
+  const handleExecuteReview = async (action) => {
+    if (!onReviewClaim) return;
+    if (action === 'accept') {
+      await onReviewClaim(claim.id, { action: 'accept' });
+    } else if (action === 'resubmit') {
+      await onReviewClaim(claim.id, { action: 'resubmit' });
+    } else if (action === 'reject') {
+      if (!reviewReason.trim()) {
+        alert('A reason is required to reject a claim.');
+        return;
+      }
+      await onReviewClaim(claim.id, { action: 'reject', reason: reviewReason.trim() });
+      setReviewMode(null);
+      setReviewReason('');
+    } else if (action === 'needs_clarification') {
+      if (!reviewReason.trim()) {
+        alert('Clarification details are required.');
+        return;
+      }
+      await onReviewClaim(claim.id, { action: 'needs_clarification', reason: reviewReason.trim() });
+      setReviewMode(null);
+      setReviewReason('');
+    } else if (action === 'edit_and_accept') {
+      if (!reviewEditedBody.trim()) {
+        alert('Edited body text cannot be empty.');
+        return;
+      }
+      await onReviewClaim(claim.id, {
+        action: 'edit_and_accept',
+        edited_body: reviewEditedBody.trim(),
+        reason: reviewReason.trim() || undefined,
+      });
+      setReviewMode(null);
+      setReviewReason('');
+    }
   };
 
   const evidenceItems = claimDetail?.evidence || [];
@@ -202,7 +256,161 @@ export function ClaimCard({ claim, availablePacks = [], onMoveClaim, onUpdateCla
         <>
           <h4 className={styles.title}>{claim.title}</h4>
           {claim.body_text && <p className={styles.body}>{claim.body_text}</p>}
+
+          {/* Historical / Original Body if edited */}
+          {claim.original_body_text && (
+            <div style={{ marginTop: '4px' }}>
+              <button
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--color-accent)',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                onClick={() => setShowOriginal(!showOriginal)}
+              >
+                <History size={11} /> {showOriginal ? 'Hide Original Text' : 'View Original Pre-Edit Text'}
+              </button>
+              {showOriginal && (
+                <div className={styles.originalBodyBox} style={{ marginTop: '4px' }}>
+                  <strong>Original:</strong> {claim.original_body_text}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Review Notes / Rejection Reason Callout */}
+          {claim.review_notes && (
+            <div className={styles.notesBox}>
+              <strong>Review Notes:</strong> {claim.review_notes}
+            </div>
+          )}
         </>
+      )}
+
+      {/* Review Actions Toolbar */}
+      {(enableReview || onReviewClaim) && (
+        <div className={styles.reviewToolbar}>
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            Review:
+          </span>
+
+          {reviewMode ? (
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' }}>
+              {reviewMode === 'edit_and_accept' && (
+                <textarea
+                  rows={3}
+                  value={reviewEditedBody}
+                  onChange={(e) => setReviewEditedBody(e.target.value)}
+                  placeholder="Edit claim body text..."
+                  style={{
+                    padding: '8px',
+                    backgroundColor: 'var(--color-bg-primary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '4px',
+                    color: 'var(--color-text-primary)',
+                    fontSize: '12px',
+                  }}
+                />
+              )}
+              <input
+                type="text"
+                value={reviewReason}
+                onChange={(e) => setReviewReason(e.target.value)}
+                placeholder={
+                  reviewMode === 'reject'
+                    ? 'Enter reason for rejection (required)...'
+                    : reviewMode === 'clarify'
+                    ? 'What clarification is required? (spawns question)...'
+                    : 'Reason or notes for edits (optional)...'
+                }
+                style={{
+                  padding: '6px 8px',
+                  backgroundColor: 'var(--color-bg-primary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '4px',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '12px',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button className={styles.actionBtn} onClick={() => setReviewMode(null)}>
+                  Cancel
+                </button>
+                <button
+                  className={`${styles.actionBtn} ${
+                    reviewMode === 'reject'
+                      ? styles.reviewBtnReject
+                      : reviewMode === 'clarify'
+                      ? styles.reviewBtnClarify
+                      : styles.reviewBtnAccept
+                  }`}
+                  onClick={() => handleExecuteReview(reviewMode === 'clarify' ? 'needs_clarification' : reviewMode)}
+                >
+                  <Check size={12} /> Confirm {reviewMode.replace('_', ' ')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {claim.review_state !== 'ACCEPTED' && (
+                <button
+                  className={`${styles.actionBtn} ${styles.reviewBtnAccept}`}
+                  onClick={() => handleExecuteReview('accept')}
+                  title="Accept claim as-is"
+                >
+                  <CheckCircle2 size={12} /> Accept
+                </button>
+              )}
+
+              <button
+                className={`${styles.actionBtn} ${styles.reviewBtnAccept}`}
+                onClick={() => {
+                  setReviewMode('edit_and_accept');
+                  setReviewEditedBody(claim.body_text || '');
+                }}
+                title="Modify body and accept claim"
+              >
+                <Edit2 size={12} /> Edit & Accept
+              </button>
+
+              {claim.review_state !== 'REJECTED' && (
+                <button
+                  className={`${styles.actionBtn} ${styles.reviewBtnReject}`}
+                  onClick={() => setReviewMode('reject')}
+                  title="Reject claim with reason"
+                >
+                  <XCircle size={12} /> Reject
+                </button>
+              )}
+
+              {claim.review_state !== 'NEEDS_CLARIFICATION' && (
+                <button
+                  className={`${styles.actionBtn} ${styles.reviewBtnClarify}`}
+                  onClick={() => setReviewMode('clarify')}
+                  title="Request clarification (creates question)"
+                >
+                  <HelpCircle size={12} /> Clarify
+                </button>
+              )}
+
+              {(claim.review_state === 'REJECTED' || claim.review_state === 'NEEDS_CLARIFICATION') && (
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => handleExecuteReview('resubmit')}
+                  title="Resubmit for review"
+                >
+                  <RotateCcw size={12} /> Resubmit
+                </button>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       <div className={styles.footer}>
