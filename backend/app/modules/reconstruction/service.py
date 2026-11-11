@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.enums import (
+    CaseParticipantRole,
     CaseStatus,
     CaseSyncStatus,
     ClaimType,
@@ -31,25 +32,29 @@ from app.db.enums import (
     SourceType,
     TransferPackStatus,
 )
+from app.integrations.documents import build_document_section_chunks
 from app.integrations.llm.factory import get_llm_provider
 from app.integrations.llm.prompts.extraction_v1 import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
     build_extraction_context,
     build_user_prompt,
+    select_relevant_source_records,
 )
 from app.integrations.llm.schemas.extraction import CandidateTransferPack, ExtractionResult
 from app.integrations.llm.validators import validate_extraction_result
 from app.modules.audit.service import create_audit_event
 from app.modules.documents.models import Document
 from app.modules.evidence.models import ClaimEvidence, ExtractionRun
-from app.modules.handover_cases.models import CaseSource, HandoverCase
+from app.modules.handover_cases.models import CaseParticipant, CaseSource, HandoverCase
+from app.modules.identity.models import IdentityMapping
 from app.modules.ingestion.models import SourceRecord
 from app.modules.projects.models import Project
 from app.modules.questions.models import Question
 from app.modules.reconstruction.schemas import ReconstructionTriggerResponse
 from app.modules.sources.models import ConnectedSource
 from app.modules.transfer_packs.models import Claim, TransferPack
+from app.modules.workspaces.models import User
 
 logger = logging.getLogger("handoffscope.reconstruction")
 
@@ -137,6 +142,13 @@ def run_extraction(
                 )
                 .first()
             )
+            doc_meta = doc.extraction_metadata if isinstance(doc.extraction_metadata, dict) else {}
+            sections = doc_meta.get("sections") or build_document_section_chunks(None, doc.extracted_text)
+            uploader_name = None
+            if doc.uploaded_by_id:
+                uploader = db.query(User).filter(User.id == doc.uploaded_by_id).first()
+                uploader_name = uploader.display_name if uploader else None
+
             if not existing_sr:
                 db.add(
                     SourceRecord(
@@ -146,13 +158,29 @@ def run_extraction(
                         external_id=str(doc.id),
                         title=doc.original_filename,
                         body=doc.extracted_text,
+                        author_name=uploader_name,
                         sensitivity=doc.sensitivity,
                         processing_status=ProcessingStatus.COMPLETED,
                         external_created_at=doc.created_at,
                         external_updated_at=doc.updated_at or doc.created_at,
-                        metadata_json={"document_id": str(doc.id), "mime_type": doc.mime_type},
+                        metadata_json={
+                            "document_id": str(doc.id),
+                            "mime_type": doc.mime_type,
+                            "page_count": doc.page_count,
+                            "section_count": len(sections),
+                            "sections": sections,
+                        },
                     )
                 )
+            elif not existing_sr.metadata_json or "sections" not in (existing_sr.metadata_json or {}):
+                updated_meta = dict(existing_sr.metadata_json or {})
+                updated_meta.update({
+                    "document_id": str(doc.id),
+                    "mime_type": doc.mime_type,
+                    "sections": sections,
+                    "section_count": len(sections),
+                })
+                existing_sr.metadata_json = updated_meta
         db.flush()
 
     # 1. Identify sources included in this case
@@ -182,10 +210,10 @@ def run_extraction(
         end_dt = datetime.combine(case.scope_end, time.max, tzinfo=timezone.utc)
         sr_query = sr_query.filter(canonical_ts <= end_dt)
 
-    # Fetch records
-    records = sr_query.order_by(SourceRecord.created_at.desc()).limit(150).all()
+    # Fetch candidate pool (broad enough to retain older decisions/ADRs & docs before relevance ranking)
+    candidate_records = sr_query.order_by(canonical_ts.desc(), SourceRecord.id.asc()).limit(500).all()
 
-    if not records:
+    if not candidate_records:
         case.status = CaseStatus.NEEDS_INPUT
         db.commit()
         return ReconstructionTriggerResponse(
@@ -195,9 +223,48 @@ def run_extraction(
             claims_created=0,
             evidence_linked=0,
             message="No source records found within the specified date scope.",
+            provider_mode="none",
+            model_used="none",
         )
 
-    # Maps for grounding
+    # Identify departing contributor names/handles/IDs for relevance weighting
+    departing_ids: set[str] = set()
+    departing_parts = (
+        db.query(CaseParticipant)
+        .filter(
+            CaseParticipant.case_id == case_id,
+            CaseParticipant.role == CaseParticipantRole.DEPARTING,
+        )
+        .all()
+    )
+    departing_user_uuids = [dp.user_id for dp in departing_parts if dp.user_id]
+    if departing_user_uuids:
+        for u in db.query(User).filter(User.id.in_(departing_user_uuids)).all():
+            departing_ids.add(str(u.id))
+            departing_ids.add(u.display_name)
+            departing_ids.add(u.email.split("@")[0])
+        for m in (
+            db.query(IdentityMapping)
+            .filter(
+                IdentityMapping.project_id == case.project_id,
+                IdentityMapping.mapped_user_id.in_(departing_user_uuids),
+            )
+            .all()
+        ):
+            if m.external_username:
+                departing_ids.add(m.external_username)
+            if m.external_id:
+                departing_ids.add(m.external_id)
+
+    # Deterministically select relevant, token-bounded, deduplicated context records
+    records, context_stats = select_relevant_source_records(
+        candidate_records,
+        case_title=case.title,
+        case_description=case.description or "",
+        departing_identifiers=departing_ids,
+    )
+
+    # Maps for strict grounding validation (ONLY selected records placed into prompt context)
     source_records_map = {str(r.id): r for r in records}
     input_source_ids = set(source_records_map.keys())
 
@@ -252,6 +319,21 @@ def run_extraction(
     _apply_deterministic_overrides(validated_result, source_records_map)
 
     actual_model_used = usage_meta.get("model_used") or provider.get_model_name()
+    provider_mode = usage_meta.get("provider_mode") or (
+        "mock" if "mock" in actual_model_used.lower() else "live"
+    )
+    fallback_used = bool(usage_meta.get("fallback_used", False))
+    fallback_reason = usage_meta.get("fallback_reason")
+
+    validated_payload = validated_result.model_dump()
+    validated_payload["_provider_meta"] = {
+        "provider_mode": provider_mode,
+        "model_used": actual_model_used,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "context_stats": context_stats,
+        "validation_errors_count": len(validation_errors),
+    }
 
     # 7. Persist ExtractionRun
     extraction_run = ExtractionRun(
@@ -266,7 +348,7 @@ def run_extraction(
         latency_ms=usage_meta.get("latency_ms"),
         status=ExtractionRunStatus.COMPLETED,
         raw_output_json=raw_output_snapshot,
-        validated_output_json=validated_result.model_dump(),
+        validated_output_json=validated_payload,
     )
     db.add(extraction_run)
     db.flush()
@@ -419,11 +501,24 @@ def run_extraction(
             "claims_created": claims_created,
             "evidence_linked": evidence_linked,
             "model_used": actual_model_used,
+            "provider_mode": provider_mode,
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason,
+            "context_stats": context_stats,
         },
-        summary=f"Reconstructed knowledge: {packs_created} Transfer Packs, {claims_created} claims with {evidence_linked} evidence references.",
+        summary=(
+            f"Reconstructed knowledge ({provider_mode}, model={actual_model_used}): "
+            f"{packs_created} Transfer Packs, {claims_created} claims with {evidence_linked} evidence references."
+        ),
     )
 
     db.commit()
+
+    mode_note = ""
+    if fallback_used:
+        mode_note = f" [MOCK FALLBACK active ({fallback_reason}) — not generated by live AI]"
+    elif provider_mode == "mock":
+        mode_note = " [Offline Mock Mode — not generated by live AI]"
 
     return ReconstructionTriggerResponse(
         run_id=run_id,
@@ -431,5 +526,10 @@ def run_extraction(
         packs_created=packs_created,
         claims_created=claims_created,
         evidence_linked=evidence_linked,
-        message=f"Reconstruction complete: {packs_created} Transfer Packs generated with {claims_created} grounded claims.",
+        message=f"Reconstruction complete: {packs_created} Transfer Packs generated with {claims_created} grounded claims.{mode_note}",
+        provider_mode=provider_mode,
+        model_used=actual_model_used,
+        fallback_used=fallback_used,
+        fallback_reason=fallback_reason,
+        context_stats=context_stats,
     )

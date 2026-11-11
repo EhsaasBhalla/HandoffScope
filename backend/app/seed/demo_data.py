@@ -651,20 +651,16 @@ def seed_synthetic_fixture(db: Session) -> None:
     ).first()
 
     if not version:
-        snapshot_payload = {
-            "version_number": 1,
-            "case_id": str(case.id),
-            "approved_at": NOW.isoformat(),
-            "approved_by": "Kabir Singh",
-            "packs": [
-                {
-                    "name": p.name,
-                    "description": p.description,
-                    "claims_count": len(p.claims),
-                }
-                for p in pack_models
-            ],
-        }
+        from app.modules.reviews.service import build_canonical_snapshot_dict
+
+        snapshot_payload, _, _ = build_canonical_snapshot_dict(
+            db,
+            case=case,
+            version_number=1,
+            approved_at=NOW,
+            approved_by_id=kabir.id,
+            approved_by_name="Kabir Singh",
+        )
         version = HandoverVersion(
             case_id=case.id,
             version_number=1,

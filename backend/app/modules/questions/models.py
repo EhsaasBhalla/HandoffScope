@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Column, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -61,7 +62,7 @@ class Question(Base, UUIDMixin, TimestampMixin):
     # Relationships
     case = relationship("HandoverCase", backref="questions")
     transfer_pack = relationship("TransferPack", backref="questions")
-    claim = relationship("Claim", backref="questions")
+    claim = relationship("Claim", foreign_keys="[Question.claim_id]", backref="questions")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     created_by = relationship("User", foreign_keys=[created_by_id])
     responses = relationship(
@@ -98,6 +99,16 @@ class QuestionResponse(Base, UUIDMixin, TimestampMixin):
     )
     reviewed_at = Column(Text, nullable=True)
     review_notes = Column(Text, nullable=True)
+
+    # Phase 4 / Gap 2 AI draft & grounding provenance fields
+    is_ai_generated = Column(Boolean, default=False, server_default="false", nullable=False)
+    ai_provider = Column(String(50), nullable=True)
+    ai_model = Column(String(100), nullable=True)
+    answer_status = Column(String(30), nullable=True)  # "answered" | "insufficient" | "conflicting"
+    evidence_json = Column(JSONB, nullable=True)
+    limitations = Column(Text, nullable=True)
+    conflicts_json = Column(JSONB, nullable=True)
+    provenance_json = Column(JSONB, nullable=True)
 
     # Relationships
     question = relationship("Question", back_populates="responses")

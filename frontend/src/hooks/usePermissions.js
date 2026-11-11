@@ -53,7 +53,12 @@ export function usePermissions() {
     if (!capability) return true;
     if (!user) return false;
 
-    // Direct lookup for seeded demo accounts
+    // Prefer authoritative server-computed RBAC capabilities from /auth/me & /auth/login
+    if (Array.isArray(user.capabilities) && user.capabilities.length > 0) {
+      return user.capabilities.includes(capability);
+    }
+
+    // Legacy fallback for minimal mock test user objects
     const userCaps = USER_CAPABILITY_MAP[user.email] || USER_CAPABILITY_MAP['default_contributor'];
     return userCaps.includes(capability);
   }

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -50,6 +51,7 @@ class TransferPack(Base, UUIDMixin, TimestampMixin):
         nullable=True,
     )
     sort_order = Column(Integer, default=0, nullable=False)
+    is_primary = Column(Boolean, default=False, server_default="false", nullable=False)
 
     # Relationships
     case = relationship("HandoverCase", backref="transfer_packs")
@@ -105,6 +107,13 @@ class Claim(Base, UUIDMixin, TimestampMixin):
     )
     reviewed_at = Column(Text, nullable=True)  # ISO timestamp
     extraction_run_id = Column(String(100), nullable=True)
+    origin_question_id = Column(
+        ForeignKey("questions.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    provenance_json = Column(JSONB, nullable=True)
 
     # Relationships
     transfer_pack = relationship("TransferPack", back_populates="claims")

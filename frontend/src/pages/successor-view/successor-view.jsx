@@ -151,6 +151,40 @@ export default function SuccessorViewPage() {
           <p className={styles.subtitle}>
             Review operational responsibilities, acknowledge receipt, inspect access blockers, and execute next actions.
           </p>
+          {v && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+              {v.is_draft_preview ? (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '3px 8px',
+                    borderRadius: '999px',
+                    backgroundColor: 'rgba(245, 158, 11, 0.14)',
+                    color: '#fbbf24',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                  }}
+                >
+                  Draft Preview — Not Approved
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '3px 8px',
+                    borderRadius: '999px',
+                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                    color: '#34d399',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                  }}
+                >
+                  {v.is_snapshot_backed ? 'Immutable Frozen Snapshot' : 'Approved Snapshot'} v{v.current_version_number || 1}
+                  {v.approved_at ? ` • Approved ${new Date(v.approved_at).toLocaleString()}` : ''}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className={styles.caseSelectorWrap}>

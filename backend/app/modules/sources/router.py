@@ -8,14 +8,28 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db
-from app.db.enums import ConnectionStatus, JobStatus, JobType, SourceType
+from app.core.dependencies import get_current_active_user, get_db, get_user_context_capabilities, require_case_capability
+from app.db.enums import CaseParticipantRole, ConnectionStatus, JobStatus, JobType, Sensitivity, SourceType, SyncRunStatus
 from app.modules.jobs.models import Job
 from app.modules.sources.models import ConnectedSource, SyncRun
 from app.modules.jobs.service import enqueue_job
 from app.modules.audit.service import create_audit_event
 
 router = APIRouter(tags=["Sources"])
+
+
+class SyncRunResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    records_fetched: int
+    records_created: int
+    records_updated: int
+    records_skipped: int = 0
+    error_message: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class SourceResponse(BaseModel):
@@ -26,6 +40,9 @@ class SourceResponse(BaseModel):
     external_id: str | None = None
     connection_status: str
     created_at: str
+    updated_at: str | None = None
+    last_successful_sync_at: str | None = None
+    last_sync_run: SyncRunResponse | None = None
 
     model_config = {"from_attributes": True}
 
@@ -37,17 +54,34 @@ class SourceConnectRequest(BaseModel):
     config: dict | None = None
 
 
-class SyncRunResponse(BaseModel):
-    id: uuid.UUID
-    status: str
-    records_fetched: int
-    records_created: int
-    records_updated: int
-    error_message: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-
-    model_config = {"from_attributes": True}
+def _build_sync_run_response(db: Session, run: SyncRun) -> SyncRunResponse:
+    skipped = 0
+    matching_job = (
+        db.query(Job)
+        .filter(
+            Job.entity_id == run.source_id,
+            Job.job_type == JobType.SOURCE_IMPORT,
+        )
+        .order_by(Job.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    for j in matching_job:
+        res = j.result or {}
+        if res.get("sync_run_id") == str(run.id) and "records_skipped" in res:
+            skipped = int(res["records_skipped"] or 0)
+            break
+    return SyncRunResponse(
+        id=run.id,
+        status=run.status.value,
+        records_fetched=run.records_fetched,
+        records_created=run.records_created,
+        records_updated=run.records_updated,
+        records_skipped=skipped,
+        error_message=run.error_message,
+        started_at=run.started_at.isoformat() if run.started_at else None,
+        completed_at=run.completed_at.isoformat() if run.completed_at else None,
+    )
 
 
 @router.get("/projects/{project_id}/sources", response_model=list[SourceResponse])
@@ -63,15 +97,36 @@ def list_sources(
         .order_by(ConnectedSource.created_at.desc())
         .all()
     )
-    return [SourceResponse(
-        id=s.id,
-        project_id=s.project_id,
-        source_type=s.source_type.value,
-        name=s.name,
-        external_id=s.external_id,
-        connection_status=s.connection_status.value,
-        created_at=s.created_at.isoformat(),
-    ) for s in sources]
+    out: list[SourceResponse] = []
+    for s in sources:
+        latest_run = (
+            db.query(SyncRun)
+            .filter(SyncRun.source_id == s.id)
+            .order_by(SyncRun.created_at.desc())
+            .first()
+        )
+        last_ok = (
+            db.query(SyncRun)
+            .filter(SyncRun.source_id == s.id, SyncRun.status == SyncRunStatus.COMPLETED)
+            .order_by(SyncRun.completed_at.desc())
+            .first()
+        )
+        last_ok_ts = last_ok.completed_at or last_ok.created_at if last_ok else None
+        out.append(
+            SourceResponse(
+                id=s.id,
+                project_id=s.project_id,
+                source_type=s.source_type.value,
+                name=s.name,
+                external_id=s.external_id,
+                connection_status=s.connection_status.value,
+                created_at=s.created_at.isoformat(),
+                updated_at=s.updated_at.isoformat() if s.updated_at else None,
+                last_successful_sync_at=last_ok_ts.isoformat() if last_ok_ts else None,
+                last_sync_run=_build_sync_run_response(db, latest_run) if latest_run else None,
+            )
+        )
+    return out
 
 
 @router.post("/projects/{project_id}/sources", response_model=SourceResponse, status_code=201)
@@ -199,16 +254,7 @@ def list_sync_runs(
         .limit(20)
         .all()
     )
-    return [SyncRunResponse(
-        id=r.id,
-        status=r.status.value,
-        records_fetched=r.records_fetched,
-        records_created=r.records_created,
-        records_updated=r.records_updated,
-        error_message=r.error_message,
-        started_at=r.started_at.isoformat() if r.started_at else None,
-        completed_at=r.completed_at.isoformat() if r.completed_at else None,
-    ) for r in runs]
+    return [_build_sync_run_response(db, r) for r in runs]
 
 
 class RefreshRequest(BaseModel):
@@ -255,4 +301,81 @@ def refresh_case_sources_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+class SourceRecordDetailOut(BaseModel):
+    id: uuid.UUID
+    record_type: str
+    external_id: str
+    title: str | None = None
+    body: str | None = None
+    author_name: str | None = None
+    state: str | None = None
+    url: str | None = None
+    sensitivity: str
+    external_created_at: str | None = None
+    metadata_json: dict | None = None
+
+
+@router.get("/cases/{case_id}/sources/records/{record_id}", response_model=SourceRecordDetailOut)
+def get_case_source_record(
+    case_id: uuid.UUID,
+    record_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieve a permitted source record belonging to a case for citation drilldown."""
+    from app.modules.handover_cases.models import CaseParticipant, CaseSource, HandoverCase
+    from app.modules.ingestion.models import SourceRecord
+
+    require_case_capability(db, user, case_id, "case.view")
+    case_obj = db.query(HandoverCase).filter(HandoverCase.id == case_id).first()
+    if not case_obj:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    record = db.query(SourceRecord).filter(SourceRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Source record not found")
+
+    # Verify record belongs strictly to this case's connected sources / project
+    case_sources = db.query(CaseSource).filter(CaseSource.case_id == case_id).all()
+    if case_sources:
+        allowed_src_ids = {cs.connected_source_id for cs in case_sources}
+    else:
+        allowed_src_ids = {
+            s.id for s in db.query(ConnectedSource).filter(ConnectedSource.project_id == case_obj.project_id).all()
+        }
+    if record.connected_source_id not in allowed_src_ids:
+        raise HTTPException(status_code=404, detail="Source record does not belong to this case")
+
+    # Enforce RESTRICTED sensitivity guard without leaking title/body/url
+    if record.sensitivity == Sensitivity.RESTRICTED:
+        _, ws_roles, proj_roles = get_user_context_capabilities(db, user, case_id=case_id)
+        is_recipient = (
+            db.query(CaseParticipant)
+            .filter(
+                CaseParticipant.case_id == case_id,
+                CaseParticipant.user_id == user.id,
+                CaseParticipant.role == CaseParticipantRole.RECIPIENT,
+            )
+            .first()
+            is not None
+        )
+        is_lead = ("OWNER" in ws_roles or proj_roles.get(str(case_obj.project_id)) == "LEAD") and not is_recipient
+        if not is_lead:
+            raise HTTPException(status_code=403, detail="Access to restricted source record requires elevated clearance")
+
+    return SourceRecordDetailOut(
+        id=record.id,
+        record_type=record.record_type.value if hasattr(record.record_type, "value") else str(record.record_type),
+        external_id=record.external_id,
+        title=record.title,
+        body=record.body,
+        author_name=record.author_name or record.author_external_id,
+        state=record.state,
+        url=record.url,
+        sensitivity=record.sensitivity.value if hasattr(record.sensitivity, "value") else str(record.sensitivity),
+        external_created_at=record.external_created_at.isoformat() if record.external_created_at else None,
+        metadata_json=record.metadata_json,
+    )
 

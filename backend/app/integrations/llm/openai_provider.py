@@ -68,4 +68,25 @@ class OpenAIProvider(LLMProvider):
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "latency_ms": latency_ms,
+            "provider_mode": "live",
+            "model_used": self.model_name,
+            "fallback_used": False,
+            "fallback_reason": None,
         }
+
+    def answer_question(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: Type[BaseModel],
+        *,
+        temperature: float = 0.1,
+        max_tokens: int = 2048,
+    ) -> tuple[BaseModel, dict[str, Any]]:
+        return self.extract_structured(
+            system_prompt,
+            user_prompt,
+            response_schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )

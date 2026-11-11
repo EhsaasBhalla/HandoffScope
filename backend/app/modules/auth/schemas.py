@@ -30,6 +30,9 @@ class UserResponse(BaseModel):
     display_name: str
     is_active: bool
     avatar_url: str | None = None
+    workspace_roles: list[str] = []
+    project_roles: dict[str, str] = {}
+    capabilities: list[str] = []
 
     model_config = {"from_attributes": True}
 

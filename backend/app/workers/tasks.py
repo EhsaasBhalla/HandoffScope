@@ -106,12 +106,16 @@ def parse_document_task(job_id: str) -> None:
         db.commit()
 
         # Update document with extracted content
+        from app.integrations.documents import build_document_section_chunks
+
         doc.extracted_text = result.get("text", "")
         doc.page_count = result.get("page_count")
-        doc.section_count = result.get("section_count") or len(result.get("sections", []))
+        section_chunks = build_document_section_chunks(result.get("sections"), doc.extracted_text)
+        doc.section_count = result.get("section_count") or len(section_chunks) or len(result.get("sections", []))
         doc.extraction_metadata = {
             "quality_warning": result.get("quality_warning"),
-            "section_count": len(result.get("sections", [])),
+            "section_count": len(section_chunks),
+            "sections": section_chunks,
         }
         doc.processing_status = ProcessingStatus.COMPLETED
 
@@ -136,6 +140,12 @@ def parse_document_task(job_id: str) -> None:
             db.add(doc_source)
             db.flush()
 
+        uploader_name = None
+        if doc.uploaded_by_id:
+            from app.modules.workspaces.models import User
+            uploader = db.query(User).filter(User.id == doc.uploaded_by_id).first()
+            uploader_name = uploader.display_name if uploader else None
+
         existing_sr = (
             db.query(SourceRecord)
             .filter(
@@ -145,11 +155,20 @@ def parse_document_task(job_id: str) -> None:
             )
             .first()
         )
+        sr_meta = {
+            "document_id": str(doc.id),
+            "mime_type": doc.mime_type,
+            "page_count": doc.page_count,
+            "section_count": len(section_chunks),
+            "sections": section_chunks,
+        }
         if existing_sr:
             existing_sr.title = doc.original_filename
             existing_sr.body = doc.extracted_text
+            existing_sr.author_name = existing_sr.author_name or uploader_name
             existing_sr.sensitivity = doc.sensitivity
             existing_sr.processing_status = ProcessingStatus.COMPLETED
+            existing_sr.metadata_json = sr_meta
             existing_sr.external_updated_at = datetime.now(timezone.utc)
         else:
             sr = SourceRecord(
@@ -159,11 +178,12 @@ def parse_document_task(job_id: str) -> None:
                 external_id=str(doc.id),
                 title=doc.original_filename,
                 body=doc.extracted_text,
+                author_name=uploader_name,
                 sensitivity=doc.sensitivity,
                 processing_status=ProcessingStatus.COMPLETED,
                 external_created_at=doc.created_at,
                 external_updated_at=datetime.now(timezone.utc),
-                metadata_json={"document_id": str(doc.id), "mime_type": doc.mime_type},
+                metadata_json=sr_meta,
             )
             db.add(sr)
 

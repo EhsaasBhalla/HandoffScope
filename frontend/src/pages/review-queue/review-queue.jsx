@@ -24,6 +24,7 @@ import { reviewApi } from '../../api/review.api';
 import { evidenceApi } from '../../api/evidence.api';
 import { transferPackApi } from '../../api/transferPack.api';
 import { ClaimCard } from '../../components/claim-card/claim-card';
+import { ApprovalPreflightPanel } from '../../components/approval-preflight-panel/approval-preflight-panel';
 import styles from './review-queue.module.css';
 
 const REVIEW_STATE_FILTERS = [
@@ -58,8 +59,6 @@ export default function ReviewQueuePage() {
   const [searchText, setSearchText] = useState('');
 
   // Modals state
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [amendmentReason, setAmendmentReason] = useState('');
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
 
   // 1. Fetch available workspaces and cases across projects
@@ -177,11 +176,9 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setShowApproveModal(false);
-      setAmendmentReason('');
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Failed to approve version');
+      alert(err.data?.detail || err.data?.error?.message || err.message || 'Failed to approve version');
     },
   });
 
@@ -299,52 +296,27 @@ export default function ReviewQueuePage() {
             {summaryLoading ? '…' : queueSummary?.rejected_count ?? 0}
           </span>
         </div>
+
+        <div className={styles.statCard}>
+          <div className={styles.statHeader}>
+            <span>Unresolved Questions</span>
+            <HelpCircle size={16} style={{ color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? '#fbbf24' : '#34d399' }} />
+          </div>
+          <span className={styles.statValue}>
+            {summaryLoading
+              ? '…'
+              : (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0)}
+          </span>
+        </div>
       </div>
 
-      {/* Approval Readiness Banner */}
-      {queueSummary && (
-        <div
-          className={`${styles.readinessBanner} ${
-            queueSummary.can_approve ? styles.readinessReady : styles.readinessBlocked
-          }`}
-        >
-          <div className={styles.readinessInfo}>
-            {queueSummary.can_approve ? (
-              <CheckCircle2 size={24} className={styles.readinessIconReady} />
-            ) : (
-              <AlertTriangle size={24} className={styles.readinessIconBlocked} />
-            )}
-            <div>
-              <div className={styles.readinessTitle}>
-                {queueSummary.can_approve
-                  ? 'All Review Preconditions Satisfied'
-                  : 'Approval Preconditions Pending'}
-              </div>
-              {queueSummary.can_approve ? (
-                <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                  All transfer packs and claims have been verified. You may freeze an immutable version snapshot (v
-                  {(queueSummary.current_version_number || 0) + 1}).
-                </p>
-              ) : (
-                <ul className={styles.blockingList}>
-                  {queueSummary.blocking_reasons.map((reason, idx) => (
-                    <li key={idx}>{reason}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          <button
-            className={styles.approveBtn}
-            onClick={() => setShowApproveModal(true)}
-            disabled={!queueSummary.can_approve || createVersionMutation.isPending}
-          >
-            <ShieldCheck size={16} />
-            Approve Version Snapshot
-          </button>
-        </div>
-      )}
+      {/* Authoritative Approval Readiness & Lead Override Panel */}
+      <ApprovalPreflightPanel
+        queueSummary={queueSummary}
+        onApproveVersion={(payload) => createVersionMutation.mutateAsync(payload)}
+        isSubmitting={createVersionMutation.isPending}
+        styles={styles}
+      />
 
       {/* Filter Toolbar */}
       <div className={styles.controlsBar}>
@@ -504,70 +476,6 @@ export default function ReviewQueuePage() {
           </div>
         )}
       </div>
-
-      {/* Approve Version Modal */}
-      {showApproveModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowApproveModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>Approve Handover Version</h3>
-              <button className={styles.closeBtn} onClick={() => setShowApproveModal(false)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className={styles.modalBody}>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                Approving will create an immutable, cryptographic-grade JSON snapshot of all Transfer Packs,
-                claims, evidence mappings, and participant assignments. The case status will transition to <strong>APPROVED</strong>.
-              </p>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
-                  Amendment / Approval Notes (optional)
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. Initial engineering review approved by Tech Lead; all runbooks verified."
-                  value={amendmentReason}
-                  onChange={(e) => setAmendmentReason(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--space-sm)',
-                    backgroundColor: 'var(--color-bg-primary)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--text-sm)',
-                    fontFamily: 'var(--font-sans)',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className={styles.modalFooter}>
-              <button
-                className={styles.filterChip}
-                onClick={() => setShowApproveModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.approveBtn}
-                onClick={() =>
-                  createVersionMutation.mutate({
-                    amendment_reason: amendmentReason.trim() || undefined,
-                  })
-                }
-                disabled={createVersionMutation.isPending}
-              >
-                <ShieldCheck size={16} />
-                {createVersionMutation.isPending ? 'Freezing Snapshot…' : 'Confirm & Freeze Version'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Snapshot JSON Inspection Modal */}
       {inspectSnapshot && (

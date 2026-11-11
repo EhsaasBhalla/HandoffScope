@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db
-from app.modules.questions.models import QuestionResponse
+from app.core.dependencies import get_current_active_user, get_db, require_case_capability
+from app.modules.questions.models import Question, QuestionResponse
 from app.modules.questions.schemas import (
     QuestionCreate,
     QuestionOut,
@@ -20,6 +20,7 @@ from app.modules.questions.schemas import (
 from app.modules.questions.service import (
     add_response,
     create_question,
+    generate_ai_answer,
     get_question,
     list_questions,
     review_response,
@@ -48,6 +49,7 @@ def get_case_questions(
     db: Session = Depends(get_db),
 ):
     """List questions belonging to a specific handover case."""
+    require_case_capability(db, user, case_id, "question.view")
     return list_questions(db, case_id=case_id, status=status)
 
 
@@ -59,8 +61,26 @@ def post_case_question(
     db: Session = Depends(get_db),
 ):
     """Create a new question for a handover case."""
+    require_case_capability(db, user, case_id, "question.create")
     body.case_id = case_id
     return create_question(db, user_id=user.id, data=body)
+
+
+@router.post("/questions/{question_id}/generate-answer", response_model=QuestionOut)
+def generate_ai_question_answer(
+    question_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Generate an evidence-grounded AI draft answer (PENDING_REVIEW) for a question."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_case_capability(db, user, q.case_id, "question.generate_ai")
+    try:
+        return generate_ai_answer(db, question_id=question_id, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/questions/{question_id}/responses", response_model=QuestionOut)
@@ -71,6 +91,10 @@ def submit_question_response(
     db: Session = Depends(get_db),
 ):
     """Submit an answer to an open question."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_case_capability(db, user, q.case_id, "question.answer")
     try:
         return add_response(db, question_id=question_id, user_id=user.id, response_text=body.response_text)
     except ValueError as exc:
@@ -84,9 +108,20 @@ def review_question_response(
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Review (accept or reject) an answer to a question."""
+    """Review (accept, reject, or amend) an answer to a question."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_case_capability(db, user, q.case_id, "question.review")
     try:
-        return review_response(db, question_id=question_id, user_id=user.id, action=body.action, notes=body.notes)
+        return review_response(
+            db,
+            question_id=question_id,
+            user_id=user.id,
+            action=body.action,
+            notes=body.notes,
+            amended_text=body.amended_text,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -98,10 +133,11 @@ def get_single_question(
     db: Session = Depends(get_db),
 ):
     """Retrieve full details of a specific question."""
-    try:
-        return get_question(db, question_id=question_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_case_capability(db, user, q.case_id, "question.view")
+    return get_question(db, question_id=question_id)
 
 
 @router.patch("/questions/{question_id}", response_model=QuestionOut)
@@ -112,6 +148,10 @@ def patch_question(
     db: Session = Depends(get_db),
 ):
     """Update question attributes or transition question status."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    require_case_capability(db, user, q.case_id, "question.view")
     try:
         return update_question(db, question_id=question_id, user_id=user.id, data=body)
     except ValueError as exc:
@@ -129,6 +169,9 @@ def review_response_direct(
     resp = db.query(QuestionResponse).filter(QuestionResponse.id == response_id).first()
     if not resp:
         raise HTTPException(status_code=404, detail="Question response not found")
+    q = db.query(Question).filter(Question.id == resp.question_id).first()
+    if q:
+        require_case_capability(db, user, q.case_id, "question.review")
     try:
         return review_response(
             db,
@@ -137,6 +180,7 @@ def review_response_direct(
             action=body.action,
             notes=body.notes,
             response_id=response_id,
+            amended_text=body.amended_text,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

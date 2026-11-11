@@ -2,56 +2,22 @@
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from sqlalchemy import text
 
 from app.api.router import router as api_router
 from app.core.constants import APP_NAME, VERSION
 from app.core.exceptions import setup_exception_handlers
 from app.core.logging import logger
 from app.core.middleware import setup_middleware
-from app.db.base import Base, SessionLocal, engine
+from app.db.base import SessionLocal, engine
+from app.db.schema_guard import ensure_additive_schema
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager: sets up DB tables and seeds on first launch."""
-    # Ensure all ORM models are registered
-    import app.modules.workspaces.models  # noqa: F401
-    import app.modules.projects.models  # noqa: F401
-    import app.modules.audit.models  # noqa: F401
-    import app.modules.handover_cases.models  # noqa: F401
-    import app.modules.sources.models  # noqa: F401
-    import app.modules.ingestion.models  # noqa: F401
-    import app.modules.jobs.models  # noqa: F401
-    import app.modules.documents.models  # noqa: F401
-    import app.modules.transfer_packs.models  # noqa: F401
-    import app.modules.questions.models  # noqa: F401
-    import app.modules.identity.models  # noqa: F401
-    import app.modules.evidence.models  # noqa: F401
-    import app.modules.reviews.models  # noqa: F401
-    import app.modules.sharing.models  # noqa: F401
-    import app.modules.recipients.models  # noqa: F401
-
     try:
-        # Ensure new columns exist on existing databases
-        with engine.connect() as conn:
-            try:
-                conn.execute(text("ALTER TABLE source_records ADD COLUMN author_mapped_user_id VARCHAR(36)"))
-                conn.commit()
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE claims ADD COLUMN original_body_text TEXT"))
-                conn.commit()
-            except Exception:
-                pass
-            try:
-                conn.execute(text("ALTER TABLE claims ADD COLUMN review_notes TEXT"))
-                conn.commit()
-            except Exception:
-                pass
+        ensure_additive_schema(engine)
 
-        Base.metadata.create_all(bind=engine)
         db = SessionLocal()
         try:
             from app.modules.workspaces.models import User

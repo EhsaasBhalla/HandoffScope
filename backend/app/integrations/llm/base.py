@@ -28,8 +28,37 @@ class LLMProvider(ABC):
 
         Returns:
             tuple of (parsed_pydantic_model, usage_metadata)
-            usage_metadata contains: {"input_tokens": int, "output_tokens": int, "latency_ms": int}
+            usage_metadata contains:
+                {
+                    "input_tokens": int,
+                    "output_tokens": int,
+                    "latency_ms": int,
+                    "provider_mode": "live" | "mock" | "mock_fallback",
+                    "model_used": str,
+                    "fallback_used": bool,
+                    "fallback_reason": str | None,
+                }
         """
+        ...
+
+    def count_tokens(self, text: str) -> int:
+        """Conservative token estimator; does not assume 1 char == 1 token."""
+        if not text:
+            return 0
+        words = len(text.split())
+        return max(len(text) // 3, int(words * 1.35) + 4)
+
+    @abstractmethod
+    def answer_question(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: Type[BaseModel],
+        *,
+        temperature: float = 0.1,
+        max_tokens: int = 2048,
+    ) -> tuple[BaseModel, dict[str, Any]]:
+        """Generate an evidence-grounded draft answer to a handover question."""
         ...
 
     @abstractmethod

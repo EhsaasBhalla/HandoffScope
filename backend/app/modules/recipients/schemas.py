@@ -107,6 +107,14 @@ class SuccessorContinuationViewOut(BaseModel):
     acknowledged_at: Optional[datetime] = None
     share_grant_id: Optional[uuid.UUID] = None
 
+    # Snapshot integrity & approval metadata
+    is_snapshot_backed: bool = False
+    is_draft_preview: bool = False
+    snapshot_mode: str = "frozen_snapshot"  # "frozen_snapshot" | "legacy_summary" | "draft_preview"
+    snapshot_schema_version: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    approved_by_name: Optional[str] = None
+
     # Core Continuation Pillars:
     # 1. "What am I taking over?"
     responsibilities: list[ResponsibilityAssignmentOut] = []

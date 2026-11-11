@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db
+from app.core.dependencies import get_current_active_user, get_db, require_case_capability
 from app.modules.evidence.models import ClaimEvidence
 from app.modules.evidence.router import _enrich_evidence_out
 from app.modules.evidence.schemas import ClaimDetailOut
@@ -66,8 +66,9 @@ def get_case_review_queue(
     db: Session = Depends(get_db),
 ):
     """Get review status summary, claim stats, and approval readiness checklist."""
+    require_case_capability(db, user, case_id, "review.view")
     try:
-        return get_review_queue_summary(db, case_id=case_id)
+        return get_review_queue_summary(db, case_id=case_id, user=user)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -80,6 +81,16 @@ def review_claim_endpoint(
     db: Session = Depends(get_db),
 ):
     """Review a claim (accept, edit_and_accept, reject, or request clarification)."""
+    from app.modules.transfer_packs.models import Claim, TransferPack
+
+    claim_obj = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim_obj:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if claim_obj.transfer_pack_id:
+        pack_obj = db.query(TransferPack).filter(TransferPack.id == claim_obj.transfer_pack_id).first()
+        if pack_obj and pack_obj.case_id:
+            require_case_capability(db, user, pack_obj.case_id, "review.submit")
+
     try:
         claim = review_claim(
             db,
@@ -136,6 +147,8 @@ def create_version_endpoint(
             case_id=case_id,
             user_id=user.id,
             amendment_reason=body.amendment_reason,
+            override_blockers=body.override_blockers,
+            override_reason=body.override_reason,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

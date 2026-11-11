@@ -32,6 +32,8 @@ import { recipientApi } from '../../api/recipient.api';
 import { projectApi } from '../../api/project.api';
 import { httpClient } from '../../api/httpClient';
 import { ClaimCard } from '../../components/claim-card/claim-card';
+import { ApprovalPreflightPanel } from '../../components/approval-preflight-panel/approval-preflight-panel';
+import { QuestionThreadCard } from '../../components/question-card/question-card';
 import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle } from 'lucide-react';
 import styles from './handover-case-detail.module.css';
 
@@ -65,14 +67,11 @@ export default function HandoverCaseDetailPage() {
   const [qWhy, setQWhy] = useState('');
   const [qPriority, setQPriority] = useState('MEDIUM');
   const [qPackId, setQPackId] = useState('');
-  const [answeringQId, setAnsweringQId] = useState(null);
-  const [ansText, setAnsText] = useState('');
 
   // Review & Approval state (Phase 8)
   const [reviewFilter, setReviewFilter] = useState('ALL');
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [amendmentReason, setAmendmentReason] = useState('');
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
+  const [reconNotice, setReconNotice] = useState(null);
 
   // Sharing & Recipient state (Phase 9)
   const [showShareModal, setShowShareModal] = useState(false);
@@ -143,12 +142,10 @@ export default function HandoverCaseDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setShowApproveModal(false);
-      setAmendmentReason('');
       setActiveTab('versions');
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Failed to approve version');
+      alert(err.data?.detail || err.data?.error?.message || err.message || 'Failed to approve version');
     },
   });
 
@@ -231,28 +228,52 @@ export default function HandoverCaseDetailPage() {
       questionApi.submitResponse(questionId, { response_text: text }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
-      setAnsweringQId(null);
-      setAnsText('');
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+  });
+
+  const generateAiAnswerMutation = useMutation({
+    mutationFn: (questionId) => questionApi.generateAiAnswer(questionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
     },
   });
 
   const reviewAnswerMutation = useMutation({
-    mutationFn: ({ questionId, action }) =>
-      questionApi.reviewResponse(questionId, { action }),
+    mutationFn: ({ questionId, ...payload }) =>
+      questionApi.reviewResponse(questionId, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.data?.error?.message || err.message || 'Review answer failed');
+    },
+  });
+
+  const transitionQuestionMutation = useMutation({
+    mutationFn: ({ questionId, status }) =>
+      questionApi.updateQuestion(questionId, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
     },
   });
 
   const reconstructMutation = useMutation({
     mutationFn: () => evidenceApi.triggerReconstruction(caseId),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setReconNotice(res || null);
       setActiveTab('packs');
     },
     onError: (err) => {
@@ -395,6 +416,42 @@ export default function HandoverCaseDetailPage() {
           );
         })}
       </div>
+
+      {reconNotice && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: 'var(--space-md)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            fontSize: 'var(--text-xs)',
+            border: `1px solid ${reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'rgba(245, 158, 11, 0.45)' : 'rgba(16, 185, 129, 0.4)'}`,
+            backgroundColor: reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.08)',
+            color: 'var(--color-text-primary)',
+          }}
+        >
+          <div>
+            <strong>
+              {reconNotice.fallback_used
+                ? 'Mock Fallback Mode (Live AI Unavailable): '
+                : reconNotice.provider_mode === 'mock'
+                ? 'Offline Mock Mode (Not Live AI): '
+                : `Live AI (${reconNotice.model_used}): `}
+            </strong>
+            <span>{reconNotice.message}</span>
+          </div>
+          <button
+            className={styles.cancelBtn}
+            style={{ padding: '4px 8px', fontSize: '11px' }}
+            onClick={() => setReconNotice(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className={styles.tabBar}>
@@ -568,152 +625,25 @@ export default function HandoverCaseDetailPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                {caseQuestions.map((q) => {
-                  const statusUpper = (q.status || '').toUpperCase();
-                  const isAnswering = answeringQId === q.id;
-
-                  return (
-                    <div key={q.id} className={styles.caseQuestionCard}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                        <div className={styles.qBadgeRow}>
-                          <span
-                            className={`${styles.qBadge} ${
-                              statusUpper === 'OPEN'
-                                ? styles.qBadgeOpen
-                                : statusUpper === 'ANSWERED'
-                                ? styles.qBadgeAnswered
-                                : styles.qBadgeResolved
-                            }`}
-                          >
-                            {q.status}
-                          </span>
-                          <span
-                            className={`${styles.qPriorityBadge} ${
-                              q.priority === 'CRITICAL'
-                                ? styles.qPriorityCritical
-                                : q.priority === 'HIGH'
-                                ? styles.qPriorityHigh
-                                : ''
-                            }`}
-                          >
-                            {q.priority}
-                          </span>
-                          {q.transfer_pack_name && (
-                            <span className={styles.qPriorityBadge} style={{ color: 'var(--color-accent)' }}>
-                              <FolderKanban size={11} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />
-                              {q.transfer_pack_name}
-                            </span>
-                          )}
-                        </div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                          {new Date(q.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-
-                      <h4 style={{ margin: 0, fontSize: '15px', color: 'var(--color-text-primary)' }}>
-                        {q.question_text}
-                      </h4>
-
-                      {q.why_it_matters && (
-                        <div style={{ backgroundColor: 'var(--color-bg-primary)', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid var(--color-accent)', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                          <strong>Why this matters:</strong> {q.why_it_matters}
-                        </div>
-                      )}
-
-                      {/* Responses thread */}
-                      {q.responses && q.responses.length > 0 && (
-                        <div className={styles.responseThread}>
-                          {q.responses.map((resp) => (
-                            <div key={resp.id} className={styles.responseItem}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '12px' }}>
-                                  Answer by {resp.respondent_name || 'Respondent'}:
-                                </span>
-                                <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: resp.review_state === 'ACCEPTED' ? '#34d399' : '#fbbf24' }}>
-                                  {resp.review_state}
-                                </span>
-                              </div>
-                              <p style={{ margin: '4px 0 0', lineHeight: 1.5 }}>{resp.response_text}</p>
-                              {resp.review_notes && (
-                                <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                                  Review note: {resp.review_notes}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Inline Answering Box */}
-                      {isAnswering && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                          <textarea
-                            rows={3}
-                            placeholder="Write your answer..."
-                            value={ansText}
-                            onChange={(e) => setAnsText(e.target.value)}
-                            style={{
-                              padding: '8px',
-                              backgroundColor: 'var(--color-bg-primary)',
-                              border: '1px solid var(--color-border)',
-                              borderRadius: '4px',
-                              color: 'var(--color-text-primary)',
-                              fontSize: '13px',
-                            }}
-                          />
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button
-                              className={styles.btnActionSm}
-                              onClick={() => {
-                                setAnsweringQId(null);
-                                setAnsText('');
-                              }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                              disabled={submitAnswerMutation.isPending || !ansText.trim()}
-                              onClick={() => submitAnswerMutation.mutate({ questionId: q.id, text: ansText.trim() })}
-                            >
-                              {submitAnswerMutation.isPending ? 'Submitting...' : 'Submit Answer'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Action buttons */}
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', paddingTop: '4px' }}>
-                        {!isAnswering && statusUpper !== 'RESOLVED' && statusUpper !== 'DISMISSED' && (
-                          <button
-                            className={styles.btnActionSm}
-                            onClick={() => setAnsweringQId(q.id)}
-                          >
-                            <MessageSquare size={12} />
-                            {q.responses?.length > 0 ? 'Add Follow-up Answer' : 'Answer Question'}
-                          </button>
-                        )}
-
-                        {statusUpper === 'ANSWERED' && q.responses?.length > 0 && (
-                          <>
-                            <button
-                              className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                              onClick={() => reviewAnswerMutation.mutate({ questionId: q.id, action: 'accept' })}
-                            >
-                              <CheckCircle2 size={12} /> Accept Answer
-                            </button>
-                            <button
-                              className={styles.btnActionSm}
-                              onClick={() => reviewAnswerMutation.mutate({ questionId: q.id, action: 'reject' })}
-                            >
-                              <XCircle size={12} /> Request Revision
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {caseQuestions.map((q) => (
+                  <QuestionThreadCard
+                    key={q.id}
+                    q={q}
+                    showCaseTag={false}
+                    onSubmitAnswer={(questionId, text) =>
+                      submitAnswerMutation.mutateAsync({ questionId, text })
+                    }
+                    onGenerateAiAnswer={(questionId) =>
+                      generateAiAnswerMutation.mutateAsync(questionId)
+                    }
+                    onReviewResponse={(questionId, payload) =>
+                      reviewAnswerMutation.mutateAsync({ questionId, ...payload })
+                    }
+                    onTransitionStatus={(questionId, status) =>
+                      transitionQuestionMutation.mutateAsync({ questionId, status })
+                    }
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -751,51 +681,26 @@ export default function HandoverCaseDetailPage() {
                   {queueSummary?.rejected_count ?? 0}
                 </span>
               </div>
+              <div className={styles.reviewStatCard}>
+                <span className={styles.reviewStatTitle}>Open Questions</span>
+                <span
+                  className={styles.reviewStatVal}
+                  style={{
+                    color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? '#fbbf24' : '#34d399',
+                  }}
+                >
+                  {(queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0)}
+                </span>
+              </div>
             </div>
 
-            {/* Approval Readiness Banner */}
-            {queueSummary && (
-              <div
-                className={`${styles.readinessBanner} ${
-                  queueSummary.can_approve ? styles.readinessReady : styles.readinessBlocked
-                }`}
-              >
-                <div className={styles.readinessInfo}>
-                  {queueSummary.can_approve ? (
-                    <CheckCircle2 size={22} style={{ color: '#34d399', flexShrink: 0, marginTop: '2px' }} />
-                  ) : (
-                    <AlertTriangle size={22} style={{ color: '#fbbf24', flexShrink: 0, marginTop: '2px' }} />
-                  )}
-                  <div>
-                    <div className={styles.readinessTitle}>
-                      {queueSummary.can_approve
-                        ? 'All Review Preconditions Satisfied'
-                        : 'Approval Preconditions Pending'}
-                    </div>
-                    {queueSummary.can_approve ? (
-                      <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                        All transfer packs and claims have been verified. You may freeze an immutable version snapshot (v
-                        {(queueSummary.current_version_number || 0) + 1}).
-                      </p>
-                    ) : (
-                      <ul className={styles.blockingList}>
-                        {queueSummary.blocking_reasons.map((r, i) => (
-                          <li key={i}>{r}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-
-                <button
-                  className={styles.approveBtn}
-                  onClick={() => setShowApproveModal(true)}
-                  disabled={!queueSummary.can_approve || createVersionMutation.isPending}
-                >
-                  <ShieldCheck size={14} /> Approve Version Snapshot
-                </button>
-              </div>
-            )}
+            {/* Authoritative Approval Readiness & Lead Override Panel */}
+            <ApprovalPreflightPanel
+              queueSummary={queueSummary}
+              onApproveVersion={(payload) => createVersionMutation.mutateAsync(payload)}
+              isSubmitting={createVersionMutation.isPending}
+              styles={styles}
+            />
 
             {/* Filter Chips */}
             <div className={styles.filterChipsRow}>
@@ -1220,58 +1125,6 @@ export default function HandoverCaseDetailPage() {
                 disabled={blockMutation.isPending}
               >
                 {blockMutation.isPending ? 'Blocking…' : 'Block Case'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Approve Version Modal */}
-      {showApproveModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowApproveModal(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: 0 }}>Approve Handover Version Snapshot</h3>
-            <p className={styles.modalSubtitle}>
-              Approving creates an immutable audit snapshot of all Transfer Packs, verified claims, and evidence bindings.
-              Case status will transition to <strong>APPROVED</strong>.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                Amendment / Approval Reason (Optional)
-              </label>
-              <textarea
-                rows={3}
-                placeholder="e.g. Lead verification complete; architecture and runbooks approved."
-                value={amendmentReason}
-                onChange={(e) => setAmendmentReason(e.target.value)}
-                style={{
-                  padding: '8px',
-                  backgroundColor: 'var(--color-bg-primary)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: '13px',
-                }}
-              />
-            </div>
-
-            <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowApproveModal(false)}>
-                Cancel
-              </button>
-              <button
-                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                style={{ padding: '8px 16px', fontSize: '13px' }}
-                disabled={createVersionMutation.isPending}
-                onClick={() =>
-                  createVersionMutation.mutate({
-                    amendment_reason: amendmentReason.trim() || undefined,
-                  })
-                }
-              >
-                <ShieldCheck size={14} />
-                {createVersionMutation.isPending ? 'Freezing Snapshot…' : 'Freeze Approved Version'}
               </button>
             </div>
           </div>

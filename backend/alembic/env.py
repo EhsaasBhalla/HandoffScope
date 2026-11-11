@@ -17,6 +17,13 @@ import app.modules.sources.models  # noqa: F401
 import app.modules.ingestion.models  # noqa: F401
 import app.modules.jobs.models  # noqa: F401
 import app.modules.documents.models  # noqa: F401
+import app.modules.transfer_packs.models  # noqa: F401
+import app.modules.questions.models  # noqa: F401
+import app.modules.identity.models  # noqa: F401
+import app.modules.evidence.models  # noqa: F401
+import app.modules.reviews.models  # noqa: F401
+import app.modules.sharing.models  # noqa: F401
+import app.modules.recipients.models  # noqa: F401
 
 # Alembic Config object
 config = context.config

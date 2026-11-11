@@ -18,6 +18,7 @@ import { questionApi } from '../../api/question.api';
 import { transferPackApi } from '../../api/transferPack.api';
 import { httpClient } from '../../api/httpClient';
 import { useAuth } from '../../context/AuthContext';
+import { QuestionThreadCard } from '../../components/question-card/question-card';
 import styles from './questions.module.css';
 
 export default function QuestionsPage() {
@@ -25,9 +26,6 @@ export default function QuestionsPage() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('ALL');
-  const [answeringId, setAnsweringId] = useState(null);
-  const [responseText, setResponseText] = useState('');
-  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
 
   // Ask Question Modal state
   const [showModal, setShowModal] = useState(false);
@@ -129,30 +127,30 @@ export default function QuestionsPage() {
     }
   }
 
-  async function handleAnswerSubmit(questionId) {
-    if (!responseText.trim()) return;
-
-    setIsSubmittingAnswer(true);
+  async function handleAnswerSubmit(questionId, text) {
     try {
-      await questionApi.submitResponse(questionId, {
-        response_text: responseText.trim(),
-      });
-      setAnsweringId(null);
-      setResponseText('');
+      await questionApi.submitResponse(questionId, { response_text: text });
       loadQuestions();
     } catch (err) {
       alert('Failed to submit answer: ' + (err.data?.detail || err.message));
-    } finally {
-      setIsSubmittingAnswer(false);
+      throw err;
     }
   }
 
-  async function handleReviewResponse(questionId, action, notes) {
+  async function handleGenerateAiAnswer(questionId) {
+    const updated = await questionApi.generateAiAnswer(questionId);
+    loadQuestions();
+    return updated;
+  }
+
+  async function handleReviewResponse(questionId, payload) {
     try {
-      await questionApi.reviewResponse(questionId, { action, notes });
+      const updated = await questionApi.reviewResponse(questionId, payload);
       loadQuestions();
+      return updated;
     } catch (err) {
-      alert('Failed to review answer: ' + (err.data?.detail || err.message));
+      alert('Failed to review answer: ' + (err.data?.detail || err.data?.error?.message || err.message));
+      throw err;
     }
   }
 
@@ -211,217 +209,17 @@ export default function QuestionsPage() {
         </div>
       ) : (
         <div className={styles.list}>
-          {questions.map((q) => {
-            const isAnswering = answeringId === q.id;
-            const statusUpper = (q.status || '').toUpperCase();
-
-            return (
-              <div key={q.id} className={styles.questionCard}>
-                {/* Card Header & Badges */}
-                <div className={styles.cardHeader}>
-                  <div className={styles.badges}>
-                    {q.case_title && (
-                      <span className={styles.caseTag}>
-                        Case #{q.case_number || 1}: {q.case_title}
-                      </span>
-                    )}
-                    {q.transfer_pack_name && (
-                      <span className={styles.caseTag} style={{ backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-accent)' }}>
-                        <FolderKanban size={11} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />
-                        {q.transfer_pack_name}
-                      </span>
-                    )}
-                    <span
-                      className={`${styles.badge} ${
-                        statusUpper === 'OPEN'
-                          ? styles.badgeOpen
-                          : statusUpper === 'ANSWERED'
-                          ? styles.badgeAnswered
-                          : styles.badgeResolved
-                      }`}
-                    >
-                      {q.status}
-                    </span>
-                    <span
-                      className={`${styles.badgePriority} ${
-                        q.priority === 'CRITICAL'
-                          ? styles.priorityCritical
-                          : q.priority === 'HIGH'
-                          ? styles.priorityHigh
-                          : styles.priorityMedium
-                      }`}
-                    >
-                      {q.priority}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {new Date(q.created_at).toLocaleDateString()}
-                  </span>
-                </div>
-
-                {/* Question Title & Why it Matters */}
-                <h3 className={styles.questionTitle}>{q.question_text}</h3>
-
-                {q.why_it_matters && (
-                  <div className={styles.whyCallout}>
-                    <strong>Why this matters:</strong> {q.why_it_matters}
-                  </div>
-                )}
-
-                {/* Metadata */}
-                <div className={styles.metaRow}>
-                  {q.created_by_name && (
-                    <div className={styles.metaItem}>
-                      <User size={13} /> Asked by {q.created_by_name}
-                    </div>
-                  )}
-                  {q.assigned_to_name && (
-                    <div className={styles.metaItem}>
-                      <HelpCircle size={13} /> Assigned to <strong>{q.assigned_to_name}</strong>
-                    </div>
-                  )}
-                </div>
-
-                {/* Responses Thread */}
-                {q.responses && q.responses.length > 0 && (
-                  <div className={styles.responsesSection}>
-                    {q.responses.map((resp) => {
-                      const reviewUpper = (resp.review_state || '').toUpperCase();
-                      return (
-                        <div key={resp.id} className={styles.responseCard}>
-                          <div className={styles.responseHeader}>
-                            <span>
-                              Answer by <strong>{resp.respondent_name || 'Respondent'}</strong>
-                            </span>
-                            <span
-                              className={`${styles.responseReviewBadge} ${
-                                reviewUpper === 'ACCEPTED'
-                                  ? styles.reviewAccepted
-                                  : reviewUpper === 'REJECTED'
-                                  ? styles.reviewRejected
-                                  : styles.reviewPending
-                              }`}
-                            >
-                              {resp.review_state}
-                            </span>
-                          </div>
-                          <div className={styles.responseText}>{resp.response_text}</div>
-                          {resp.review_notes && (
-                            <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                              Review note: {resp.review_notes}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Inline Answer Box */}
-                {isAnswering && (
-                  <div className={styles.inlineAnswerBox}>
-                    <textarea
-                      rows={3}
-                      className={styles.answerInput}
-                      placeholder="Write your answer, providing architectural rationale or pointing to relevant codebase files..."
-                      value={responseText}
-                      onChange={(e) => setResponseText(e.target.value)}
-                    />
-                    <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end' }}>
-                      <button
-                        className={styles.cancelBtn}
-                        onClick={() => {
-                          setAnsweringId(null);
-                          setResponseText('');
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        className={styles.submitBtn}
-                        disabled={isSubmittingAnswer}
-                        onClick={() => handleAnswerSubmit(q.id)}
-                      >
-                        {isSubmittingAnswer ? 'Submitting...' : 'Submit Answer'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Actions Row */}
-                <div className={styles.actionRow}>
-                  {!isAnswering && statusUpper !== 'RESOLVED' && statusUpper !== 'DISMISSED' && (
-                    <button className={styles.answerBtn} onClick={() => setAnsweringId(q.id)}>
-                      <MessageSquare size={13} />
-                      {q.responses?.length > 0 ? 'Add Follow-up Answer' : 'Answer Question'}
-                    </button>
-                  )}
-
-                  {/* If answered, allow reviewer to accept / request revision / amend */}
-                  {statusUpper === 'ANSWERED' && q.responses?.length > 0 && (
-                    <>
-                      <button
-                        className={styles.acceptBtn}
-                        onClick={() => handleReviewResponse(q.id, 'accept')}
-                      >
-                        <CheckCircle2 size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-                        Accept Answer
-                      </button>
-                      <button
-                        className={styles.rejectBtn}
-                        onClick={() => handleReviewResponse(q.id, 'reject')}
-                      >
-                        <XCircle size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-                        Request Revision
-                      </button>
-                    </>
-                  )}
-
-                  {/* Publish DRAFT AI-suggested question to OPEN */}
-                  {statusUpper === 'DRAFT' && (
-                    <button
-                      className={styles.acceptBtn}
-                      onClick={() => handleTransitionQuestion(q.id, 'OPEN')}
-                    >
-                      <CheckCircle2 size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-                      Publish Question
-                    </button>
-                  )}
-
-                  {/* Reopen if resolved or dismissed */}
-                  {(statusUpper === 'RESOLVED' || statusUpper === 'DISMISSED') && (
-                    <button
-                      className={styles.answerBtn}
-                      onClick={() => handleTransitionQuestion(q.id, 'OPEN')}
-                    >
-                      <RotateCcw size={13} /> Reopen Question
-                    </button>
-                  )}
-
-                  {/* Dismiss if open */}
-                  {statusUpper === 'OPEN' && (
-                    <button
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid var(--color-border)',
-                        color: 'var(--color-text-muted)',
-                        padding: 'var(--space-xs) var(--space-md)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 'var(--text-xs)',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                      onClick={() => handleTransitionQuestion(q.id, 'DISMISSED')}
-                    >
-                      <Ban size={12} /> Dismiss
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {questions.map((q) => (
+            <QuestionThreadCard
+              key={q.id}
+              q={q}
+              showCaseTag={true}
+              onSubmitAnswer={handleAnswerSubmit}
+              onGenerateAiAnswer={handleGenerateAiAnswer}
+              onReviewResponse={handleReviewResponse}
+              onTransitionStatus={handleTransitionQuestion}
+            />
+          ))}
         </div>
       )}
 

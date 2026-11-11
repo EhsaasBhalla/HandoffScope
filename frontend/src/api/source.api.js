@@ -31,6 +31,10 @@ export const sourceApi = {
       simulate_modification: simulateModification,
     });
   },
+
+  getCaseSourceRecord(caseId, recordId) {
+    return httpClient.get(`/api/v1/cases/${caseId}/sources/records/${recordId}`);
+  },
 };
 
 

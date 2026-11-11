@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.dependencies import get_current_active_user, get_db
+from app.core.dependencies import get_current_active_user, get_db, get_user_context_capabilities
 from app.core.security import decode_token, create_access_token, generate_csrf_token
 from app.modules.auth.schemas import LoginRequest, TokenResponse, UserResponse
 from app.modules.auth.service import authenticate_user, create_tokens_for_user
@@ -20,6 +20,15 @@ _COOKIE_KWARGS = {
     "secure": settings.APP_ENV != "development",
     "path": "/",
 }
+
+
+def _build_user_response(db: Session, user) -> UserResponse:
+    caps, ws_roles, proj_roles = get_user_context_capabilities(db, user)
+    base = UserResponse.model_validate(user)
+    base.workspace_roles = sorted(set(ws_roles))
+    base.project_roles = proj_roles
+    base.capabilities = sorted(caps)
+    return base
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -43,7 +52,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
 
     return TokenResponse(
         csrf_token=tokens["csrf_token"],
-        user=UserResponse.model_validate(user),
+        user=_build_user_response(db, user),
     )
 
 
@@ -56,9 +65,9 @@ def logout(response: Response):
 
 
 @router.get("/me", response_model=UserResponse)
-def me(user=Depends(get_current_active_user)):
-    """Return the currently authenticated user."""
-    return UserResponse.model_validate(user)
+def me(user=Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Return the currently authenticated user with authoritative RBAC capabilities."""
+    return _build_user_response(db, user)
 
 
 @router.post("/refresh")

@@ -134,6 +134,8 @@ def run_import(job_id: str) -> None:
         records_created = 0
         records_updated = 0
         records_fetched = 0
+        records_unchanged = 0
+        filtered_pr_issues = 0
 
         try:
             # ── Fetch Issues (excluding PRs so PRs get canonical data via /pulls) ──
@@ -142,6 +144,7 @@ def run_import(job_id: str) -> None:
 
             issues = client.list_issues(owner, repo)
             pure_issues = [i for i in issues if "pull_request" not in i]
+            filtered_pr_issues = max(0, len(issues) - len(pure_issues))
             records_fetched += len(pure_issues)
 
             for idx, issue_data in enumerate(pure_issues):
@@ -151,6 +154,8 @@ def run_import(job_id: str) -> None:
                     records_created += 1
                 elif change == "updated":
                     records_updated += 1
+                else:
+                    records_unchanged += 1
 
                 if record and idx < 5:
                     try:
@@ -175,6 +180,8 @@ def run_import(job_id: str) -> None:
                     records_created += 1
                 elif change == "updated":
                     records_updated += 1
+                else:
+                    records_unchanged += 1
 
                 if pr_record and idx < 5:
                     try:
@@ -206,8 +213,11 @@ def run_import(job_id: str) -> None:
                     records_created += 1
                 elif change == "updated":
                     records_updated += 1
+                else:
+                    records_unchanged += 1
 
             # ── Complete ──────────────────────────────────────
+            records_skipped = records_unchanged + filtered_pr_issues
             sync_run.status = SyncRunStatus.COMPLETED
             sync_run.completed_at = datetime.now(timezone.utc)
             sync_run.records_fetched = records_fetched
@@ -217,9 +227,12 @@ def run_import(job_id: str) -> None:
             source.updated_at = datetime.now(timezone.utc)
 
             complete_job(db, job.id, result={
+                "sync_run_id": str(sync_run.id),
                 "records_fetched": records_fetched,
                 "records_created": records_created,
                 "records_updated": records_updated,
+                "records_skipped": records_skipped,
+                "filtered_pr_issues": filtered_pr_issues,
             })
             db.commit()
 

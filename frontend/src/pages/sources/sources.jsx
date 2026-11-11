@@ -168,14 +168,14 @@ export default function SourcesPage() {
     },
   });
 
-  // Stale detection / refresh mutation
+  // Local timestamp freshness evaluation mutation (zero remote GitHub calls)
   const refreshMutation = useMutation({
     mutationFn: ({ sourceId, simulate }) => sourceApi.refreshSource(sourceId, simulate),
     onSuccess: (data) => {
       setImportError('');
       const msg = data.records_changed > 0
-        ? `Freshness check complete: ${data.records_checked} records checked. Upstream modification detected (${data.records_changed} changed) — ${data.claims_marked_stale} claim(s) flagged for review.`
-        : `Freshness check complete: ${data.records_checked} records verified. Everything is current with zero drift.`;
+        ? `Local freshness check complete (${data.records_checked} imported records checked locally; no GitHub call): ${data.records_changed} local timestamp change(s) detected — ${data.claims_marked_stale} claim(s) flagged stale.`
+        : `Local freshness check complete (${data.records_checked} imported records checked locally; no GitHub call): all imported records match current baselines.`;
       setImportStatusMessage(msg);
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
       queryClient.invalidateQueries({ queryKey: ['case'] });
@@ -387,7 +387,10 @@ export default function SourcesPage() {
         <div className={styles.cardTop}>
           <div className={styles.cardHeaderInfo}>
             <h3>Source Inventory</h3>
-            <p>All connected data streams feeding into the knowledge reconstruction pipeline.</p>
+            <p>
+              <strong>Sync Repository</strong> fetches remote updates from GitHub.{' '}
+              <strong>Check Local Freshness</strong> evaluates timestamps of already-imported local records only (makes no remote GitHub call).
+            </p>
           </div>
         </div>
 
@@ -401,19 +404,56 @@ export default function SourcesPage() {
                   <th>Source Name</th>
                   <th>Type</th>
                   <th>External ID</th>
-                  <th>Connection Status</th>
+                  <th>Status & Sync Telemetry</th>
                   <th>Connected Date</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {sources.map((src) => (
+                {sources.map((src) => {
+                  const run = src.last_sync_run;
+                  const lastAttemptTs = run?.completed_at || run?.started_at;
+                  return (
                   <tr key={src.id}>
                     <td className={styles.boldCell}>{src.name}</td>
                     <td className={styles.monoCell}>{src.source_type}</td>
                     <td className={styles.monoCell}>{src.external_id || '—'}</td>
                     <td>
-                      <span className={styles.activeStatusBadge}>{src.connection_status}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: 'var(--text-xs)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span className={styles.activeStatusBadge}>{src.connection_status}</span>
+                          {run && (
+                            <span
+                              style={{
+                                fontWeight: 600,
+                                color: run.status === 'FAILED' ? 'var(--color-danger)' : 'var(--color-text-secondary)',
+                              }}
+                            >
+                              Last sync: {run.status}
+                            </span>
+                          )}
+                        </div>
+                        {src.last_successful_sync_at && (
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            Last successful sync: {new Date(src.last_successful_sync_at).toLocaleString()}
+                          </span>
+                        )}
+                        {lastAttemptTs && (
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            Last attempt: {new Date(lastAttemptTs).toLocaleString()}
+                          </span>
+                        )}
+                        {run && (
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            Counts: fetched {run.records_fetched} · imported {run.records_created} · updated {run.records_updated} · skipped {run.records_skipped ?? 0}
+                          </span>
+                        )}
+                        {run?.status === 'FAILED' && run?.error_message && (
+                          <span style={{ color: 'var(--color-danger)' }}>
+                            Error: {run.error_message}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>{new Date(src.created_at).toLocaleDateString()}</td>
                     <td>
@@ -422,34 +462,35 @@ export default function SourcesPage() {
                           className={styles.importTriggerBtn}
                           onClick={() => importMutation.mutate(src.id)}
                           disabled={syncingSourceId === src.id || importMutation.isPending}
-                          title="Trigger background ingestion from source"
+                          title="Fetch remote updates from GitHub via background sync job"
                         >
                           <RefreshCw size={13} className={syncingSourceId === src.id ? styles.spinIcon : ''} />
-                          <span>{syncingSourceId === src.id ? 'Syncing…' : 'Sync'}</span>
+                          <span>{syncingSourceId === src.id ? 'Syncing…' : 'Sync Repository'}</span>
                         </button>
                         <button
                           className={styles.importTriggerBtn}
                           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
                           onClick={() => refreshMutation.mutate({ sourceId: src.id, simulate: false })}
                           disabled={refreshMutation.isPending}
-                          title="Check upstream changes against last sync"
+                          title="Evaluates age of already-imported local records only; makes zero remote GitHub API calls"
                         >
                           <RefreshCw size={13} className={refreshMutation.isPending ? styles.spinIcon : ''} />
-                          <span>Check Freshness</span>
+                          <span>Check Local Freshness</span>
                         </button>
                         <button
                           className={styles.importTriggerBtn}
                           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
                           onClick={() => refreshMutation.mutate({ sourceId: src.id, simulate: true })}
                           disabled={refreshMutation.isPending}
-                          title="Simulate an upstream edit to test staleness drift propagation"
+                          title="Simulate an upstream edit on an imported local record to test staleness drift propagation"
                         >
                           <span>Simulate Drift</span>
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

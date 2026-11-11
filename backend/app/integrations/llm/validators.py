@@ -6,6 +6,7 @@ Phase 6 — AI Extraction & Evidence Engine.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from app.db.enums import Sensitivity
@@ -58,10 +59,13 @@ def validate_extraction_result(
                 )
                 continue
 
-            # 2. Excerpt check (fuzzy / case-insensitive)
+            # 2. Excerpt check (whitespace-normalised / case-insensitive across body or title)
             body = getattr(source, "body", "") or getattr(source, "body_text", "") or ""
-            if ref.excerpt and body:
-                if ref.excerpt.lower().strip() not in body.lower():
+            title = getattr(source, "title", "") or ""
+            combined_norm = re.sub(r"\s+", " ", f"{title} {body}").strip().lower()
+            excerpt_norm = re.sub(r"\s+", " ", (ref.excerpt or "")).strip().lower()
+            if excerpt_norm and combined_norm:
+                if excerpt_norm not in combined_norm:
                     errors.append(
                         ValidationError(
                             message=f"Excerpt not found verbatim in source record {ref_id}",

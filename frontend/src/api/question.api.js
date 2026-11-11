@@ -19,6 +19,8 @@ export const questionApi = {
     httpClient.patch(`/api/v1/questions/${questionId}`, data),
   submitResponse: (questionId, data) =>
     httpClient.post(`/api/v1/questions/${questionId}/responses`, data),
+  generateAiAnswer: (questionId) =>
+    httpClient.post(`/api/v1/questions/${questionId}/generate-answer`),
   reviewResponse: (questionId, data) =>
     httpClient.patch(`/api/v1/questions/${questionId}/review`, data),
 };

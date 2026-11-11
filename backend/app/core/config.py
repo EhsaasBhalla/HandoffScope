@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_MODEL_NAME: str = "gemini-3.5-flash"
     LLM_MAX_CALLS_PER_CASE: int = 50
+    LLM_REQUEST_TIMEOUT_SECONDS: float = 60.0
+    LLM_MAX_RETRIES: int = 2
+    LLM_EXTRACTION_MAX_RECORDS: int = 50
+    LLM_EXTRACTION_MAX_TOKEN_BUDGET: int = 24000
+    LLM_RECORD_EXCERPT_CHAR_LIMIT: int = 1200
 
     # ── Document Storage ──────────────────────────────────────
     UPLOAD_DIR: str = "./storage/uploads"
