@@ -20,9 +20,8 @@ logger = logging.getLogger("handoffscope.llm.gemini")
 
 # Order of model candidates to try when Google servers experience demand spikes or deprecations
 CANDIDATE_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
     "gemini-flash-latest",
 ]
@@ -31,7 +30,7 @@ CANDIDATE_MODELS = [
 class GeminiProvider(LLMProvider):
     """Resilient LLM provider backed by Google Gemini REST API with multi-model fallback."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-3.8-flash"):
+    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash"):
         self.api_key = api_key
         self.model_name = model_name
 
