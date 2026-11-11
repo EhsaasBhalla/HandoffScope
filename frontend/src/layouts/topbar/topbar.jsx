@@ -72,16 +72,15 @@ export function Topbar({ onOpenGuide }) {
       </div>
 
       <div className={styles.right}>
-        {/* Judge / Evaluator Guide Button */}
+        {/* Workspace Guide Button */}
         {onOpenGuide && (
           <button
             className={styles.guideBtn}
             onClick={onOpenGuide}
-            title="Open Evaluator Guide & Interactive Walkthrough"
+            title="Open Guide & Interactive Walkthrough"
           >
             <Compass size={16} className={styles.guideIcon} />
-            <span className={styles.guideLabel}>Evaluator Guide</span>
-            <span className={styles.guideBadge}>Round 3</span>
+            <span className={styles.guideLabel}>Guide</span>
           </button>
         )}
 

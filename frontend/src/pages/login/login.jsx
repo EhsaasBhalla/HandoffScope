@@ -84,7 +84,7 @@ export default function LoginPage() {
       </form>
 
       <p className={styles.demoHint}>
-        <strong>Hackathon Round 3 Evaluation:</strong> Click any demo persona below to sign in instantly. A self-guided 5-Act Walkthrough will open automatically.
+        <strong>Quick Demo Login:</strong> Click any demo persona below to sign in instantly. An interactive Guide will open automatically.
       </p>
       <div className={styles.personaGrid}>
         <button

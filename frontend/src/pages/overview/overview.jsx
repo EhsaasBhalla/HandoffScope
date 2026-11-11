@@ -76,7 +76,7 @@ export default function OverviewPage() {
         <div className={styles.quickActions}>
           <button className={styles.evaluatorBannerBtn} onClick={() => setShowGuide(true)}>
             <Compass size={16} />
-            <span>Evaluator Guide</span>
+            <span>Guide</span>
           </button>
           <Link to="/review" className={styles.actionBtn}>
             <Clock size={16} />
@@ -93,7 +93,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Evaluator Callout Banner */}
+      {/* Guide Callout Banner */}
       <div className={styles.evaluatorBanner}>
         <div className={styles.evaluatorBannerLeft}>
           <div className={styles.evaluatorBannerIcon}>
@@ -101,10 +101,10 @@ export default function OverviewPage() {
           </div>
           <div>
             <div className={styles.evaluatorBannerTitle}>
-              Round 3 Judge / Evaluator Walkthrough Available
+              Interactive Workspace Guide Available
             </div>
             <div className={styles.evaluatorBannerText}>
-              Testing asynchronously? Follow our self-guided 5-Act evaluation script, switch between 4 personas in 1-click, and verify zero-hallucination grounding.
+              Follow our self-guided 5-step walkthrough, switch between 4 demo personas in 1-click, and explore evidence-grounded handover workflows.
             </div>
           </div>
         </div>
@@ -113,7 +113,7 @@ export default function OverviewPage() {
           onClick={() => setShowGuide(true)}
         >
           <Compass size={16} />
-          <span>Launch 5-Act Guide</span>
+          <span>Open Guide</span>
         </button>
       </div>
 

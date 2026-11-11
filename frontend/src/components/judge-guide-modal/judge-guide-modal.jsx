@@ -192,8 +192,8 @@ export function JudgeGuideModal({ isOpen, onClose }) {
               <Sparkles size={20} className={styles.headerSparkle} />
             </div>
             <div>
-              <div className={styles.tagline}>Evaluation Quickstart • Round 3 Shortlist Tour</div>
-              <h2 className={styles.title}>HandoffScope Evaluator Guide</h2>
+              <div className={styles.tagline}>Workspace Quickstart • Interactive Product Tour</div>
+              <h2 className={styles.title}>HandoffScope Guide</h2>
             </div>
           </div>
           <button className={styles.closeBtn} onClick={handleDismiss} title="Close Guide">
@@ -276,7 +276,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
 
                 <p className={styles.actSummary}>{currentAct.summary}</p>
 
-                <div className={styles.stepsTitle}>Recommended Inspection Steps:</div>
+                <div className={styles.stepsTitle}>Recommended Walkthrough Steps:</div>
                 <ol className={styles.stepsList}>
                   {currentAct.steps.map((step, idx) => (
                     <li key={idx} className={styles.stepItem}>
@@ -375,8 +375,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
           {activeTab === 'fast-track' && (
             <div className={styles.fastTrackTab}>
               <div className={styles.fastTrackIntro}>
-                <strong>Short on time?</strong> Follow this 3-minute critical path to verify the core capabilities
-                judged in Round 3:
+                <strong>Short on time?</strong> Follow this 3-minute guided tour to explore the core handover capabilities:
               </div>
 
               <div className={styles.fastTrackGrid}>
@@ -464,7 +463,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
 
           <div className={styles.footerButtons}>
             <button className={styles.dismissBtn} onClick={handleDismiss}>
-              Close & Start Testing
+              Close & Explore Workspace
             </button>
           </div>
         </div>
