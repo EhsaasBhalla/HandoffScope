@@ -43,13 +43,13 @@ DEMO_USERS = [
         "email": "kabir.singh@example.test",
         "display_name": "Kabir Singh",
         "ws_role": WorkspaceRole.MEMBER,
-        "proj_role": ProjectRole.CONTRIBUTOR,
+        "proj_role": ProjectRole.REVIEWER,
     },
     {
         "email": "aisha.khan@example.test",
         "display_name": "Aisha Khan",
         "ws_role": WorkspaceRole.MEMBER,
-        "proj_role": ProjectRole.REVIEWER,
+        "proj_role": ProjectRole.CONTRIBUTOR,
     },
     {
         "email": "dev.mehta@example.test",

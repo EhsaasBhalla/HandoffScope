@@ -16,10 +16,14 @@ export function setCsrfToken(token) {
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
 
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...options.headers,
   };
+  if (isFormData) {
+    delete headers['Content-Type'];
+  }
 
   if (csrfToken) {
     headers['X-CSRF-Token'] = csrfToken;
@@ -43,10 +47,24 @@ async function request(endpoint, options = {}) {
     return null;
   }
 
-  const data = await response.json();
+  const rawText = await response.text();
+  let data = null;
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = { detail: rawText };
+    }
+  }
 
   if (!response.ok) {
-    const error = new Error(data?.error?.message || `Request failed: ${response.status}`);
+    const detailMsg = typeof data?.detail === 'string'
+      ? data.detail
+      : Array.isArray(data?.detail)
+        ? data.detail.map((d) => d.msg || JSON.stringify(d)).join('; ')
+        : null;
+    const message = data?.error?.message || detailMsg || `Request failed: ${response.status}`;
+    const error = new Error(message);
     error.status = response.status;
     error.data = data;
     throw error;

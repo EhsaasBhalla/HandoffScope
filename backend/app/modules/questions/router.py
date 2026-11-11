@@ -136,6 +136,7 @@ def review_response_direct(
             user_id=user.id,
             action=body.action,
             notes=body.notes,
+            response_id=response_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

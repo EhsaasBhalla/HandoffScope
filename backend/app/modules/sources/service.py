@@ -45,7 +45,21 @@ def refresh_source(
     claims_stale_count = 0
     changed_record_ids = []
 
-    # If simulate_modification is requested, or if any record has been updated recently
+    # Determine baseline time for drift check (latest completed sync or source.updated_at)
+    def _to_utc(dt: datetime | None) -> datetime | None:
+        if dt is None:
+            return None
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+    last_sync = (
+        db.query(SyncRun)
+        .filter(SyncRun.source_id == source.id, SyncRun.completed_at.isnot(None))
+        .order_by(SyncRun.completed_at.desc())
+        .first()
+    )
+    baseline = _to_utc(last_sync.completed_at if last_sync else None) or _to_utc(source.updated_at) or _to_utc(source.created_at)
+
+    # If simulate_modification is requested, or if any record has been modified after baseline
     now = datetime.now(timezone.utc)
     if simulate_modification and records:
         # Simulate an upstream modification on the first record
@@ -56,14 +70,13 @@ def refresh_source(
         changed_record_ids.append(target_rec.id)
         records_changed += 1
 
-    # In general check records updated recently or in changed_record_ids
-    if not changed_record_ids:
-        # Check if any records were updated after creation
+    # Check if any records were modified externally after the baseline check
+    if not changed_record_ids and baseline is not None:
         for r in records:
-            if r.external_updated_at and r.external_created_at:
-                if (r.external_updated_at - r.external_created_at).total_seconds() > 3600:
-                    changed_record_ids.append(r.id)
-                    records_changed += 1
+            upd = _to_utc(r.external_updated_at)
+            if upd and upd > baseline:
+                changed_record_ids.append(r.id)
+                records_changed += 1
 
     # Propagate staleness to claims referencing changed records
     stale_claim_ids = set()
@@ -114,6 +127,8 @@ def refresh_source(
                 case.sync_status = CaseSyncStatus.CHANGED_SINCE_APPROVAL
             else:
                 case.sync_status = CaseSyncStatus.POTENTIALLY_STALE
+
+    source.updated_at = now
 
     # Record audit event
     create_audit_event(

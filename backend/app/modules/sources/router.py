@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
-from app.db.enums import ConnectionStatus, JobType, SourceType
+from app.db.enums import ConnectionStatus, JobStatus, JobType, SourceType
+from app.modules.jobs.models import Job
 from app.modules.sources.models import ConnectedSource, SyncRun
 from app.modules.jobs.service import enqueue_job
 from app.modules.audit.service import create_audit_event
@@ -99,13 +100,23 @@ def connect_source(
     if existing:
         raise HTTPException(status_code=409, detail="Source already connected")
 
+    config_data = dict(body.config) if body.config else {}
+    if source_type == SourceType.GITHUB_REPO and (not config_data.get("owner") or not config_data.get("repo")):
+        slug = (body.external_id or body.name or "").strip().strip("/")
+        if slug.startswith("https://github.com/"):
+            slug = slug.replace("https://github.com/", "").rstrip(".git").strip("/")
+        if "/" in slug:
+            parts = slug.split("/")
+            config_data["owner"] = parts[0].strip()
+            config_data["repo"] = parts[1].strip()
+
     source = ConnectedSource(
         project_id=project_id,
         source_type=source_type,
         name=body.name,
         external_id=body.external_id,
         connection_status=ConnectionStatus.ACTIVE,
-        config=body.config,
+        config=config_data or None,
         connected_by_id=user.id,
     )
     db.add(source)
@@ -145,6 +156,19 @@ def trigger_import(
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
+    # Avoid double-triggering if a sync is currently pending or running
+    active_job = (
+        db.query(Job)
+        .filter(
+            Job.entity_id == source_id,
+            Job.job_type == JobType.SOURCE_IMPORT,
+            Job.status.in_([JobStatus.PENDING, JobStatus.RUNNING]),
+        )
+        .first()
+    )
+    if active_job:
+        return {"message": "Import job already in progress", "job_id": str(active_job.id)}
+
     job = enqueue_job(
         db,
         job_type=JobType.SOURCE_IMPORT,
@@ -152,7 +176,7 @@ def trigger_import(
         entity_id=source_id,
         created_by_id=user.id,
         params={"source_id": str(source_id)},
-        idempotency_key=f"import-{source_id}",
+        idempotency_key=f"import-{source_id}-{uuid.uuid4().hex[:12]}",
         queue_name="handoffscope-import",
         task_func="app.workers.import_task.run_import",
     )

@@ -23,16 +23,26 @@ export default function HandoverCasesPage() {
     enabled: !!activeWsId,
   });
 
+  const [selectedProjectId, setSelectedProjectId] = useState('ALL');
   const defaultProjectId = projects?.[0]?.id;
 
-  // Fetch cases for default project (or can expand to multi-project)
+  // Fetch cases across ALL projects in the workspace
   const { data: cases, isLoading } = useQuery({
-    queryKey: ['cases', defaultProjectId],
-    queryFn: () => caseApi.listCases(defaultProjectId),
-    enabled: !!defaultProjectId,
+    queryKey: ['cases', 'workspace', activeWsId, projects?.map((p) => p.id)],
+    queryFn: async () => {
+      const results = await Promise.all(
+        (projects || []).map(async (p) => {
+          const list = await caseApi.listCases(p.id);
+          return (list || []).map((c) => ({ ...c, project_name: p.name }));
+        })
+      );
+      return results.flat();
+    },
+    enabled: !!projects && projects.length > 0,
   });
 
   const filteredCases = cases?.filter((c) => {
+    if (selectedProjectId !== 'ALL' && c.project_id !== selectedProjectId) return false;
     if (statusFilter === 'ALL') return true;
     if (statusFilter === 'BLOCKED') return c.is_blocked;
     return c.status === statusFilter;

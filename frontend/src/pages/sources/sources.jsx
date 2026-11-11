@@ -13,6 +13,7 @@ import {
 import { projectApi } from '../../api/project.api';
 import { sourceApi, githubApi } from '../../api/source.api';
 import { documentApi } from '../../api/document.api';
+import { jobApi } from '../../api/job.api';
 import styles from './sources.module.css';
 
 export default function SourcesPage() {
@@ -21,8 +22,12 @@ export default function SourcesPage() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [importStatusMessage, setImportStatusMessage] = useState('');
+  const [importError, setImportError] = useState('');
+  const [syncingSourceId, setSyncingSourceId] = useState(null);
+  const [showAddRepo, setShowAddRepo] = useState(false);
+  const [repoSlugInput, setRepoSlugInput] = useState('');
 
-  // 1. Fetch workspaces and default project
+  // 1. Fetch workspaces and active project
   const { data: workspaces } = useQuery({
     queryKey: ['workspaces'],
     queryFn: () => projectApi.listWorkspaces(),
@@ -38,6 +43,7 @@ export default function SourcesPage() {
 
   const defaultProject = projects?.[0];
   const projectId = selectedProjectId || defaultProject?.id;
+  const activeProject = projects?.find((p) => p.id === projectId) || defaultProject;
 
   // 2. Fetch GitHub connection status
   const { data: githubStatus } = useQuery({
@@ -53,11 +59,45 @@ export default function SourcesPage() {
     enabled: !!projectId,
   });
 
-  // 4. Fetch uploaded documents
-  const { data: documents, isLoading: docsLoading } = useQuery({
+  // 4. Fetch uploaded documents (poll every 2s while any document is PENDING/RUNNING)
+  const { data: documents } = useQuery({
     queryKey: ['documents', projectId],
     queryFn: () => documentApi.listDocuments(projectId),
     enabled: !!projectId,
+    refetchInterval: (query) => {
+      const list = query.state.data;
+      if (Array.isArray(list) && list.some((d) => d.processing_status === 'PENDING' || d.processing_status === 'RUNNING')) {
+        return 2000;
+      }
+      return false;
+    },
+  });
+
+  // Connect GitHub repo mutation
+  const connectRepoMutation = useMutation({
+    mutationFn: (repoSlug) => {
+      const cleaned = repoSlug.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+      const [owner, repo] = cleaned.split('/');
+      if (!owner || !repo) {
+        throw new Error('Enter repository in "owner/repo" format (e.g. pydantic/pydantic)');
+      }
+      return sourceApi.connectSource(projectId, {
+        source_type: 'GITHUB_REPO',
+        name: `${owner}/${repo}`,
+        external_id: `${owner}/${repo}`,
+        config: { owner, repo },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setRepoSlugInput('');
+      setShowAddRepo(false);
+      setImportError('');
+    },
+    onError: (err) => {
+      setImportError(err.data?.detail || err.message || 'Failed to connect repository');
+    },
   });
 
   // Upload Mutation
@@ -65,37 +105,88 @@ export default function SourcesPage() {
     mutationFn: (file) => documentApi.uploadDocument(projectId, file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project-timeline', projectId] });
       setUploadError('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     },
     onError: (err) => {
-      setUploadError(err.data?.error?.message || err.message || 'Upload failed');
+      setUploadError(err.data?.detail || err.data?.error?.message || err.message || 'Upload failed');
     },
   });
+
+  // Poll background sync job until completion or failure
+  async function pollSyncJob(jobId) {
+    for (let attempt = 0; attempt < 45; attempt++) {
+      await new Promise((r) => setTimeout(r, 1200));
+      try {
+        const job = await jobApi.getJob(jobId);
+        if (job.status === 'COMPLETED') {
+          setSyncingSourceId(null);
+          setImportStatusMessage(`Sync completed successfully! Source records & commit history updated.`);
+          queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['project-timeline', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+          setTimeout(() => setImportStatusMessage(''), 8000);
+          return;
+        }
+        if (job.status === 'FAILED' || job.status === 'CANCELLED') {
+          setSyncingSourceId(null);
+          setImportStatusMessage('');
+          setImportError(`Sync failed: ${job.error_message || 'Unknown error'}`);
+          queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+          return;
+        }
+        setImportStatusMessage(`Syncing repository… ${job.progress_message || job.status}`);
+      } catch (pollErr) {
+        console.warn('Job poll error:', pollErr);
+      }
+    }
+    setSyncingSourceId(null);
+    setImportStatusMessage('Sync is still running in background — refresh shortly to check updated records.');
+  }
 
   // Import trigger mutation
   const importMutation = useMutation({
     mutationFn: (sourceId) => sourceApi.triggerImport(sourceId),
+    onMutate: (sourceId) => {
+      setImportError('');
+      setSyncingSourceId(sourceId);
+      setImportStatusMessage('Enqueuing background sync job…');
+    },
     onSuccess: (data) => {
-      setImportStatusMessage(`Sync triggered: Ingestion worker scanning repository records…`);
+      if (data?.job_id) {
+        setImportStatusMessage(`Sync started (Job ${data.job_id.slice(0, 8)}): fetching issues, PRs & commits…`);
+        pollSyncJob(data.job_id);
+      }
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
-      setTimeout(() => setImportStatusMessage(''), 6000);
+    },
+    onError: (err) => {
+      setSyncingSourceId(null);
+      setImportStatusMessage('');
+      setImportError(err.data?.detail || err.message || 'Failed to trigger sync');
     },
   });
 
-  // Stale detection / refresh mutation with modification simulation
+  // Stale detection / refresh mutation
   const refreshMutation = useMutation({
-    mutationFn: (sourceId) => sourceApi.refreshSource(sourceId, true),
+    mutationFn: ({ sourceId, simulate }) => sourceApi.refreshSource(sourceId, simulate),
     onSuccess: (data) => {
-      setImportStatusMessage(
-        `Freshness check complete: ${data.records_checked} records verified. Upstream modification detected — ${data.claims_marked_stale} claim(s) flagged for review.`
-      );
+      setImportError('');
+      const msg = data.records_changed > 0
+        ? `Freshness check complete: ${data.records_checked} records checked. Upstream modification detected (${data.records_changed} changed) — ${data.claims_marked_stale} claim(s) flagged for review.`
+        : `Freshness check complete: ${data.records_checked} records verified. Everything is current with zero drift.`;
+      setImportStatusMessage(msg);
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['case'] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims'] });
+      queryClient.invalidateQueries({ queryKey: ['project-timeline', projectId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setTimeout(() => setImportStatusMessage(''), 8000);
     },
     onError: (err) => {
-      setUploadError(err.data?.detail || err.message || 'Refresh failed');
+      setImportError(err.data?.detail || err.message || 'Refresh failed');
     },
   });
 
@@ -144,8 +235,14 @@ export default function SourcesPage() {
 
       {importStatusMessage && (
         <div className={styles.statusBanner}>
-          <RefreshCw size={16} className={styles.spinIcon} />
+          <RefreshCw size={16} className={syncingSourceId ? styles.spinIcon : ''} />
           <span>{importStatusMessage}</span>
+        </div>
+      )}
+
+      {importError && (
+        <div className={styles.errorBox} style={{ marginBottom: 'var(--space-md)' }}>
+          {importError}
         </div>
       )}
 
@@ -157,26 +254,52 @@ export default function SourcesPage() {
           </div>
           <div className={styles.cardHeaderInfo}>
             <h3>GitHub Integration</h3>
-            <p>Connect your GitHub App to ingest issues, pull requests, reviews, and commits.</p>
+            <p>Connect any public or app-authorized repository to ingest issues, pull requests, reviews, and commits.</p>
           </div>
           <div className={styles.statusIndicator}>
+            <button
+              className={styles.importTriggerBtn}
+              onClick={() => setShowAddRepo((v) => !v)}
+            >
+              <Plus size={14} />
+              <span>Connect Repo</span>
+            </button>
             {githubStatus?.connected ? (
               <span className={styles.connectedBadge}>
                 <CheckCircle2 size={14} /> Connected ({githubStatus.account_login})
               </span>
             ) : (
               <span className={styles.syntheticBadge}>
-                Using Synthetic Fixture
+                Public Repo &amp; Synthetic Fixture
               </span>
             )}
           </div>
         </div>
 
+        {showAddRepo && (
+          <div style={{ padding: 'var(--space-md) var(--space-lg)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="owner/repo or https://github.com/owner/repo"
+              value={repoSlugInput}
+              onChange={(e) => setRepoSlugInput(e.target.value)}
+              style={{ flex: 1, minWidth: '240px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', fontSize: 'var(--text-sm)' }}
+            />
+            <button
+              className={styles.importTriggerBtn}
+              disabled={!repoSlugInput.trim() || connectRepoMutation.isPending}
+              onClick={() => connectRepoMutation.mutate(repoSlugInput)}
+            >
+              {connectRepoMutation.isPending ? 'Connecting…' : 'Save Source'}
+            </button>
+          </div>
+        )}
+
         <div className={styles.cardBody}>
           <div className={styles.cardMetaRow}>
             <div>
               <span className={styles.metaLabel}>Configured Repository</span>
-              <span className={styles.metaValue}>{defaultProject?.repo_url || 'https://github.com/acme-eng/atlas-platform'}</span>
+              <span className={styles.metaValue}>{activeProject?.repo_url || 'No repository URL configured'}</span>
             </div>
             <div>
               <span className={styles.metaLabel}>Permissions</span>
@@ -294,25 +417,34 @@ export default function SourcesPage() {
                     </td>
                     <td>{new Date(src.created_at).toLocaleDateString()}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '6px' }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         <button
                           className={styles.importTriggerBtn}
                           onClick={() => importMutation.mutate(src.id)}
-                          disabled={importMutation.isPending}
-                          title="Trigger full background ingestion"
+                          disabled={syncingSourceId === src.id || importMutation.isPending}
+                          title="Trigger background ingestion from source"
                         >
-                          <RefreshCw size={13} />
-                          <span>Sync</span>
+                          <RefreshCw size={13} className={syncingSourceId === src.id ? styles.spinIcon : ''} />
+                          <span>{syncingSourceId === src.id ? 'Syncing…' : 'Sync'}</span>
                         </button>
                         <button
                           className={styles.importTriggerBtn}
                           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
-                          onClick={() => refreshMutation.mutate(src.id)}
+                          onClick={() => refreshMutation.mutate({ sourceId: src.id, simulate: false })}
                           disabled={refreshMutation.isPending}
-                          title="Check upstream changes and propagate staleness"
+                          title="Check upstream changes against last sync"
                         >
                           <RefreshCw size={13} className={refreshMutation.isPending ? styles.spinIcon : ''} />
                           <span>Check Freshness</span>
+                        </button>
+                        <button
+                          className={styles.importTriggerBtn}
+                          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+                          onClick={() => refreshMutation.mutate({ sourceId: src.id, simulate: true })}
+                          disabled={refreshMutation.isPending}
+                          title="Simulate an upstream edit to test staleness drift propagation"
+                        >
+                          <span>Simulate Drift</span>
                         </button>
                       </div>
                     </td>

@@ -107,10 +107,10 @@ export default function AuditLogPage() {
             <option value="transfer_pack">Transfer Pack</option>
             <option value="claim">Claim</option>
             <option value="handover_version">Version Snapshot</option>
-            <option value="share_grant">Share Grant</option>
-            <option value="recipient_acknowledgement">Acknowledgement</option>
+            <option value="question">Question</option>
             <option value="responsibility_assignment">Responsibility</option>
             <option value="connected_source">Source</option>
+            <option value="identity_mapping">Identity Mapping</option>
           </select>
 
           <select
@@ -120,13 +120,14 @@ export default function AuditLogPage() {
           >
             <option value="">All Actions</option>
             <option value="case.created">Case Created</option>
-            <option value="reconstruction.completed">Reconstruction Completed</option>
-            <option value="claim.reviewed">Claim Reviewed</option>
-            <option value="version.created">Version Approved</option>
-            <option value="version.shared">Version Shared</option>
+            <option value="RECONSTRUCTION_COMPLETED">Reconstruction Completed</option>
+            <option value="claim.">Claim Reviewed / Updated</option>
+            <option value="case.approved">Version Approved</option>
+            <option value="case.shared">Version Shared</option>
             <option value="case.acknowledged">Case Acknowledged</option>
             <option value="responsibility.accepted">Responsibility Accepted</option>
             <option value="responsibility.declined">Responsibility Declined</option>
+            <option value="question.">Question Actions</option>
             <option value="source.refreshed">Source Refreshed</option>
           </select>
         </div>

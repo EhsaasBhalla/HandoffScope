@@ -41,11 +41,16 @@ export default function SuccessorViewPage() {
   });
 
   useEffect(() => {
-    if (myCases && myCases.length > 0 && !selectedCaseId) {
-      setSelectedCaseId(myCases[0].id);
-      setSearchParams({ caseId: myCases[0].id });
+    if (myCases && myCases.length > 0) {
+      const stillValid = myCases.some((c) => c.id === selectedCaseId);
+      if (!selectedCaseId || !stillValid) {
+        setSelectedCaseId(myCases[0].id);
+        setSearchParams({ caseId: myCases[0].id });
+      }
+    } else {
+      setSelectedCaseId('');
     }
-  }, [myCases]);
+  }, [myCases, selectedCaseId]);
 
   const handleCaseChange = (e) => {
     const newId = e.target.value;
@@ -66,6 +71,11 @@ export default function SuccessorViewPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to acknowledge receipt');
     },
   });
 
@@ -75,6 +85,12 @@ export default function SuccessorViewPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to accept responsibility');
     },
   });
 
@@ -85,8 +101,14 @@ export default function SuccessorViewPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setDecliningAssignmentId(null);
       setDeclineReason('');
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to decline responsibility (reason must be at least 3 characters)');
     },
   });
 
@@ -511,7 +533,8 @@ export default function SuccessorViewPage() {
               </button>
               <button
                 className={styles.btnDecline}
-                disabled={!declineReason.trim() || declineMutation.isPending}
+                disabled={declineReason.trim().length < 3 || declineMutation.isPending}
+                title={declineReason.trim().length < 3 ? 'Reason must be at least 3 characters' : ''}
                 onClick={() =>
                   declineMutation.mutate({
                     assignmentId: decliningAssignmentId,

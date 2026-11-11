@@ -278,8 +278,10 @@ def build_recipient_projection(
                     if ev.excerpt:
                         snippets.append(ev.excerpt[:120])
 
-            if is_withheld and all(ev.is_restricted for ev in evidence_records) and evidence_records:
+            original_body_text = c.original_body_text
+            if is_withheld:
                 body_text = "[RESTRICTED EVIDENCE — Access clearance required to inspect source details.]"
+                original_body_text = None
 
             claim_out = SuccessorProjectedClaimOut(
                 id=c.id,
@@ -287,7 +289,7 @@ def build_recipient_projection(
                 claim_type=c.claim_type.value if hasattr(c.claim_type, "value") else str(c.claim_type),
                 title=c.title,
                 body_text=body_text,
-                original_body_text=c.original_body_text,
+                original_body_text=original_body_text,
                 evidence_state=c.evidence_state.value if hasattr(c.evidence_state, "value") else str(c.evidence_state),
                 freshness=c.freshness.value if hasattr(c.freshness, "value") else str(c.freshness),
                 review_state=c.review_state.value if hasattr(c.review_state, "value") else str(c.review_state),
@@ -308,7 +310,7 @@ def build_recipient_projection(
                     "id": str(c.id),
                     "type": "CLAIM",
                     "title": c.title,
-                    "description": c.body_text,
+                    "description": body_text,
                     "pack_name": p.name,
                     "priority": c.priority.value if hasattr(c.priority, "value") else str(c.priority),
                 })
@@ -327,10 +329,13 @@ def build_recipient_projection(
             )
         )
 
-    # Add open questions to unfinished items
+    # Add active unresolved questions to unfinished items
     open_questions = (
         db.query(Question)
-        .filter(Question.case_id == case_id, Question.status != QuestionStatus.RESOLVED)
+        .filter(
+            Question.case_id == case_id,
+            Question.status.in_([QuestionStatus.OPEN, QuestionStatus.ANSWERED, QuestionStatus.PENDING_REVIEW]),
+        )
         .all()
     )
     for q in open_questions:

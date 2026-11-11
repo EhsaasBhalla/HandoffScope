@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/auth.api';
 
 const AuthContext = createContext(null);
@@ -6,6 +7,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   // On mount, try to get current user from cookie-based session
   useEffect(() => {
@@ -25,14 +27,16 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password);
+    queryClient.clear();
     setUser(data.user);
     return data;
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     await authApi.logout();
+    queryClient.clear();
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   const value = {
     user,

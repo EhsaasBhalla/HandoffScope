@@ -28,6 +28,17 @@ def _run_task_wrapper(task_func: str, job_id_str: str) -> None:
         func(job_id_str)
     except Exception as exc:
         logger.exception("Error executing background job %s (%s): %s", job_id_str, task_func, exc)
+        # Ensure the job is marked FAILED if the worker didn't catch the error itself
+        try:
+            from app.db.base import SessionLocal
+            err_db = SessionLocal()
+            try:
+                fail_job(err_db, uuid.UUID(job_id_str), error_message=str(exc))
+                err_db.commit()
+            finally:
+                err_db.close()
+        except Exception:
+            pass
 
 
 def enqueue_job(
@@ -46,9 +57,13 @@ def enqueue_job(
     # Check idempotency
     if idempotency_key:
         existing = db.query(Job).filter(Job.idempotency_key == idempotency_key).first()
-        if existing and existing.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
-            logger.info("Idempotent job already exists: %s", idempotency_key)
-            return existing
+        if existing:
+            if existing.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
+                logger.info("Idempotent job already exists: %s", idempotency_key)
+                return existing
+            # Detach key from previous failed/cancelled job so retry won't collide with UNIQUE index
+            existing.idempotency_key = None
+            db.flush()
 
     job = Job(
         job_type=job_type,
@@ -62,12 +77,11 @@ def enqueue_job(
     db.add(job)
     db.flush()
 
-    # Dispatch directly to background thread pool
+    # Commit before dispatching to worker thread so SessionLocal() sees the new Job & related rows
     if task_func:
+        db.commit()
         _EXECUTOR.submit(_run_task_wrapper, task_func, str(job.id))
         logger.info("Dispatched background job %s (%s) to worker pool", job.id, task_func)
-
-    return job
 
     return job
 
@@ -122,14 +136,9 @@ def fail_job(
     if not job:
         return None
 
-    if job.retry_count < job.max_retries:
-        job.status = JobStatus.RETRYING
-        job.retry_count += 1
-        job.error_message = error_message
-    else:
-        job.status = JobStatus.FAILED
-        job.completed_at = datetime.now(timezone.utc)
-        job.error_message = error_message
+    job.status = JobStatus.FAILED
+    job.completed_at = datetime.now(timezone.utc)
+    job.error_message = error_message
 
     db.flush()
     return job

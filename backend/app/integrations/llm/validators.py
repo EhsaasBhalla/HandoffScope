@@ -44,7 +44,6 @@ def validate_extraction_result(
                         severity="error",
                     )
                 )
-                item.evidence_state = EvidenceState.UNKNOWN
                 continue
 
             source = source_records_by_id.get(ref_id)
@@ -57,7 +56,6 @@ def validate_extraction_result(
                         severity="error",
                     )
                 )
-                item.evidence_state = EvidenceState.UNKNOWN
                 continue
 
             # 2. Excerpt check (fuzzy / case-insensitive)
@@ -83,6 +81,9 @@ def validate_extraction_result(
             valid_refs.append(ref)
 
         item.evidence = valid_refs
+        # Only degrade to UNKNOWN if zero valid citations remain
+        if not valid_refs and getattr(item, "evidence_state", None) != EvidenceState.UNKNOWN:
+            item.evidence_state = EvidenceState.UNKNOWN
 
     # Validate items across all transfer packs
     for pack in result.transfer_packs:

@@ -74,7 +74,14 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
 
-    user = db.query(User).filter(User.id == payload["sub"]).first()
+    import uuid
+
+    try:
+        user_uuid = uuid.UUID(str(payload["sub"]))
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid subject in token")
+
+    user = db.query(User).filter(User.id == user_uuid).first()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 

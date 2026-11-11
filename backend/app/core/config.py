@@ -41,17 +41,18 @@ class Settings(BaseSettings):
             return parts if parts else ["*"]
         return ["*"]
 
-    # ── GitHub App ────────────────────────────────────────────
+    # ── GitHub App & API Token ────────────────────────────────
     GITHUB_APP_ID: str = ""
     GITHUB_APP_PRIVATE_KEY_PATH: str = ""
     GITHUB_APP_WEBHOOK_SECRET: str = ""
     GITHUB_APP_CLIENT_ID: str = ""
     GITHUB_APP_CLIENT_SECRET: str = ""
+    GITHUB_TOKEN: str = ""
 
     # ── LLM Provider ─────────────────────────────────────────
     LLM_PROVIDER: str = "gemini"
     LLM_API_KEY: str = ""
-    LLM_MODEL_NAME: str = "gemini-3.5-flash"
+    LLM_MODEL_NAME: str = "gemini-3.8-flash"
     LLM_MAX_CALLS_PER_CASE: int = 50
 
     # ── Document Storage ──────────────────────────────────────

@@ -270,6 +270,8 @@ def add_response(
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise ValueError("Question not found")
+    if question.status in (QuestionStatus.DISMISSED, QuestionStatus.CANCELLED):
+        raise ValueError(f"Cannot answer a question in status '{question.status.value}'")
 
     response = QuestionResponse(
         question_id=question.id,
@@ -302,8 +304,9 @@ def review_response(
     user_id: uuid.UUID,
     action: str,
     notes: str | None = None,
+    response_id: uuid.UUID | None = None,
 ) -> QuestionOut:
-    """Accept or reject the latest response to a question."""
+    """Accept, reject, or amend a response to a question."""
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise ValueError("Question not found")
@@ -311,38 +314,47 @@ def review_response(
     if not question.responses:
         raise ValueError("No responses found for this question")
 
-    latest_response = question.responses[-1]
-    now_iso = datetime.now(timezone.utc).isoformat()
+    if response_id is not None:
+        target_response = next((r for r in question.responses if r.id == response_id), None)
+        if not target_response:
+            raise ValueError("Question response not found on this question")
+    else:
+        target_response = question.responses[-1]
 
-    if action.lower() == "accept":
-        latest_response.review_state = QuestionResponseReviewState.ACCEPTED
-        latest_response.reviewed_by_id = user_id
-        latest_response.reviewed_at = now_iso
-        latest_response.review_notes = notes
+    now_iso = datetime.now(timezone.utc).isoformat()
+    act = action.lower().strip()
+
+    if act == "accept":
+        target_response.review_state = QuestionResponseReviewState.ACCEPTED
+        target_response.reviewed_by_id = user_id
+        target_response.reviewed_at = now_iso
+        target_response.review_notes = notes
         question.status = QuestionStatus.RESOLVED
-    elif action.lower() == "reject":
-        latest_response.review_state = QuestionResponseReviewState.REJECTED
-        latest_response.reviewed_by_id = user_id
-        latest_response.reviewed_at = now_iso
-        latest_response.review_notes = notes
+    elif act == "reject":
+        target_response.review_state = QuestionResponseReviewState.REJECTED
+        target_response.reviewed_by_id = user_id
+        target_response.reviewed_at = now_iso
+        target_response.review_notes = notes
         question.status = QuestionStatus.OPEN  # Re-opens question for re-answering
-    elif action.lower() == "amend":
-        latest_response.review_state = QuestionResponseReviewState.AMENDED
-        latest_response.reviewed_by_id = user_id
-        latest_response.reviewed_at = now_iso
-        latest_response.review_notes = notes
+    elif act == "amend":
+        target_response.review_state = QuestionResponseReviewState.AMENDED
+        target_response.reviewed_by_id = user_id
+        target_response.reviewed_at = now_iso
+        target_response.review_notes = notes
         question.status = QuestionStatus.RESOLVED
+    else:
+        raise ValueError(f"Unsupported question review action: '{action}'. Expected accept, reject, or amend.")
 
     db.flush()
 
     create_audit_event(
         db,
         actor_id=user_id,
-        action=f"question.response_{action.lower()}",
+        action=f"question.response_{act}",
         entity_type="question",
         entity_id=question.id,
-        details={"action": action, "notes": notes},
-        summary=f"{action.capitalize()}ed answer for question",
+        details={"action": act, "notes": notes, "response_id": str(target_response.id)},
+        summary=f"{act.capitalize()}ed answer for question",
     )
     db.commit()
     db.refresh(question)

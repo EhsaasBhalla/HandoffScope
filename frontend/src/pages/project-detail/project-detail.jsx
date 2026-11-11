@@ -81,8 +81,8 @@ export default function ProjectDetailPage() {
   const autoSuggestMutation = useMutation({
     mutationFn: () => identityApi.autoSuggest(projectId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['identity-mappings', projectId]);
-      queryClient.invalidateQueries(['identity-coverage', projectId]);
+      queryClient.invalidateQueries({ queryKey: ['identity-mappings', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['identity-coverage', projectId] });
     },
   });
 
@@ -90,8 +90,8 @@ export default function ProjectDetailPage() {
   const updateMappingMutation = useMutation({
     mutationFn: ({ id, data }) => identityApi.updateMapping(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['identity-mappings', projectId]);
-      queryClient.invalidateQueries(['identity-coverage', projectId]);
+      queryClient.invalidateQueries({ queryKey: ['identity-mappings', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['identity-coverage', projectId] });
     },
   });
 
@@ -105,6 +105,11 @@ export default function ProjectDetailPage() {
   };
 
   const handleReject = (mapping) => {
+    setSelectedUserMap((prev) => {
+      const next = { ...prev };
+      delete next[mapping.id];
+      return next;
+    });
     updateMappingMutation.mutate({
       id: mapping.id,
       data: { action: 'reject' },

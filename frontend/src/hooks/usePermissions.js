@@ -5,34 +5,44 @@
  */
 import { useAuth } from '../context/AuthContext';
 
-// Capability mapping for demo users based on their primary roles
+// Capability mapping for demo users aligned with their actual roles
 const USER_CAPABILITY_MAP = {
-  // Maya Sharma (OWNER / LEAD)
+  // Maya Sharma (Workspace OWNER / Project LEAD)
   'maya.sharma@example.test': [
     'workspace.manage', 'workspace.view', 'project.manage', 'project.view',
     'case.create', 'case.manage', 'case.view', 'source.connect', 'source.view',
     'source.import', 'extraction.trigger', 'extraction.view', 'pack.create',
-    'pack.manage', 'pack.view', 'review.request', 'review.view', 'share.manage',
+    'pack.manage', 'pack.view', 'review.request', 'review.submit', 'review.view',
+    'question.create', 'question.view', 'question.answer',
+    'share.manage', 'successor.view', 'acceptance.manage',
     'document.upload', 'document.view', 'audit.view', 'settings.manage', 'timeline.view',
   ],
-  // Arjun Patel (ADMIN / Departing CONTRIBUTOR)
+  // Arjun Patel (Workspace ADMIN / Departing Contributor)
   'arjun.patel@example.test': [
     'workspace.view', 'project.view', 'case.view', 'source.view',
-    'extraction.view', 'pack.view', 'question.answer', 'timeline.view',
+    'extraction.view', 'pack.view', 'question.view', 'question.answer', 'timeline.view',
   ],
-  // Neha Gupta (MEMBER / Successor RECIPIENT)
-  'neha.gupta@example.test': [
-    'workspace.view', 'project.view', 'case.view', 'pack.view',
-    'successor.view', 'question.create', 'question.view', 'acceptance.manage', 'timeline.view',
+  // Kabir Singh (Technical Reviewer)
+  'kabir.singh@example.test': [
+    'workspace.view', 'project.view', 'case.view', 'source.view',
+    'extraction.view', 'pack.view', 'pack.manage', 'review.submit', 'review.view',
+    'question.create', 'question.view', 'question.answer', 'timeline.view',
+    'document.view', 'audit.view',
   ],
-  // Aisha Khan (MEMBER / REVIEWER)
+  // Aisha Khan (Designated Successor / Recipient)
   'aisha.khan@example.test': [
-    'workspace.view', 'project.view', 'case.view', 'extraction.view',
-    'pack.view', 'review.submit', 'review.view', 'question.create', 'question.view', 'timeline.view',
+    'workspace.view', 'project.view', 'case.view', 'source.view',
+    'extraction.view', 'pack.view', 'successor.view', 'acceptance.manage',
+    'question.create', 'question.view', 'timeline.view', 'document.view',
   ],
-  // Dev Mehta / Kabir Singh / Priya Nair (Contributors)
+  // Neha Gupta / Dev Mehta / Priya Nair (Contributors)
+  'neha.gupta@example.test': [
+    'workspace.view', 'project.view', 'case.view', 'source.view',
+    'pack.view', 'question.view', 'question.answer', 'timeline.view',
+  ],
   'default_contributor': [
-    'workspace.view', 'project.view', 'case.view', 'source.view', 'timeline.view',
+    'workspace.view', 'project.view', 'case.view', 'source.view',
+    'question.view', 'timeline.view',
   ],
 };
 

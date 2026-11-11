@@ -15,6 +15,14 @@ GITHUB_API = "https://api.github.com"
 GITHUB_ACCEPT = "application/vnd.github+json"
 
 
+class GitHubAPIError(RuntimeError):
+    """Raised when GitHub REST API rejects or fails a request."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class GitHubClient:
     """Wrapper around GitHub REST API v3."""
 
@@ -28,22 +36,36 @@ class GitHubClient:
         if access_token and access_token.strip():
             self._headers["Authorization"] = f"Bearer {access_token.strip()}"
 
+    def _raise_for_github_error(self, resp: httpx.Response, url: str) -> None:
+        if resp.status_code < 400:
+            return
+        if resp.status_code in (403, 429):
+            rem = resp.headers.get("X-RateLimit-Remaining")
+            if rem == "0" or resp.status_code == 429 or "rate limit" in resp.text.lower():
+                raise GitHubAPIError(
+                    "GitHub API rate limit exceeded. Configure GITHUB_TOKEN or connect a GitHub App installation to increase limits.",
+                    status_code=resp.status_code,
+                )
+            raise GitHubAPIError(f"GitHub API access forbidden (HTTP {resp.status_code}) for {url}", status_code=resp.status_code)
+        if resp.status_code == 404:
+            raise GitHubAPIError(f"GitHub repository or endpoint not found (404): {url}", status_code=404)
+        if resp.status_code == 401:
+            raise GitHubAPIError("GitHub authentication failed (401 Unauthorized). Check token.", status_code=401)
+        resp.raise_for_status()
+
     def _get(self, url: str, params: dict | None = None) -> dict | list:
         """Synchronous GET request."""
         try:
             resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
-            resp.raise_for_status()
+            self._raise_for_github_error(resp, url)
             return resp.json()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 403:
-                logger.warning("GitHub API rate limit or forbidden: %s", exc)
-                return {}
-            raise
+        except httpx.HTTPError as exc:
+            raise GitHubAPIError(f"GitHub HTTP request failed for {url}: {exc}") from exc
 
-    def _get_paginated(self, url: str, params: dict | None = None, max_pages: int = 1) -> list:
-        """Fetch pages from a paginated GitHub endpoint safely."""
-        params = params or {}
-        params.setdefault("per_page", 30)
+    def _get_paginated(self, url: str, params: dict | None = None, max_pages: int = 2, per_page: int = 50) -> list:
+        """Fetch pages from a paginated GitHub endpoint."""
+        params = dict(params or {})
+        params.setdefault("per_page", per_page)
         all_items = []
         page = 1
 
@@ -51,10 +73,7 @@ class GitHubClient:
             params["page"] = page
             try:
                 resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
-                if resp.status_code == 403:
-                    logger.warning("GitHub rate limit reached while fetching %s", url)
-                    break
-                resp.raise_for_status()
+                self._raise_for_github_error(resp, url)
                 items = resp.json()
                 if not items or not isinstance(items, list):
                     break
@@ -62,9 +81,10 @@ class GitHubClient:
                 if len(items) < params["per_page"]:
                     break
                 page += 1
+            except GitHubAPIError:
+                raise
             except httpx.HTTPError as exc:
-                logger.warning("GitHub request failed for %s (page %d): %s", url, page, exc)
-                break
+                raise GitHubAPIError(f"GitHub request failed for {url} (page {page}): {exc}") from exc
 
         return all_items
 
@@ -77,27 +97,37 @@ class GitHubClient:
         return self._get_paginated(
             f"{GITHUB_API}/repos/{owner}/{repo}/issues",
             params={"state": state, "filter": "all"},
+            max_pages=2,
+            per_page=50,
         )
 
     def list_issue_comments(self, owner: str, repo: str, issue_number: int) -> list:
         return self._get_paginated(
-            f"{GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}/comments"
+            f"{GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            max_pages=1,
+            per_page=30,
         )
 
     def list_pulls(self, owner: str, repo: str, state: str = "all") -> list:
         return self._get_paginated(
             f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
             params={"state": state},
+            max_pages=2,
+            per_page=50,
         )
 
     def list_pull_reviews(self, owner: str, repo: str, pull_number: int) -> list:
         return self._get_paginated(
-            f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}/reviews"
+            f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            max_pages=1,
+            per_page=30,
         )
 
     def list_pull_review_comments(self, owner: str, repo: str, pull_number: int) -> list:
         return self._get_paginated(
-            f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}/comments"
+            f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+            max_pages=1,
+            per_page=30,
         )
 
     def list_commits(self, owner: str, repo: str, since: str | None = None) -> list:
@@ -107,6 +137,8 @@ class GitHubClient:
         return self._get_paginated(
             f"{GITHUB_API}/repos/{owner}/{repo}/commits",
             params=params,
+            max_pages=2,
+            per_page=50,
         )
 
 

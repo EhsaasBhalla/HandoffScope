@@ -116,6 +116,7 @@ def list_cases(
         project_id=c.project_id,
         case_number=c.case_number,
         title=c.title,
+        description=c.description,
         transition_type=c.transition_type.value,
         status=c.status.value,
         is_blocked=c.is_blocked,

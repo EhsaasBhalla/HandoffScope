@@ -17,9 +17,11 @@ import {
 import { questionApi } from '../../api/question.api';
 import { transferPackApi } from '../../api/transferPack.api';
 import { httpClient } from '../../api/httpClient';
+import { useAuth } from '../../context/AuthContext';
 import styles from './questions.module.css';
 
 export default function QuestionsPage() {
+  const { user } = useAuth();
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -41,14 +43,14 @@ export default function QuestionsPage() {
   useEffect(() => {
     loadQuestions();
     loadCases();
-  }, [filterStatus]);
+  }, [filterStatus, user?.id]);
 
   useEffect(() => {
+    setSelectedPackId('');
     if (selectedCaseId) {
       loadPacksForCase(selectedCaseId);
     } else {
       setAvailablePacks([]);
-      setSelectedPackId('');
     }
   }, [selectedCaseId]);
 
@@ -121,7 +123,7 @@ export default function QuestionsPage() {
       setSelectedPackId('');
       loadQuestions();
     } catch (err) {
-      alert('Failed to submit question: ' + (err.response?.data?.detail || err.message));
+      alert('Failed to submit question: ' + (err.data?.detail || err.message));
     } finally {
       setIsSubmittingQuestion(false);
     }
@@ -139,7 +141,7 @@ export default function QuestionsPage() {
       setResponseText('');
       loadQuestions();
     } catch (err) {
-      alert('Failed to submit answer: ' + (err.response?.data?.detail || err.message));
+      alert('Failed to submit answer: ' + (err.data?.detail || err.message));
     } finally {
       setIsSubmittingAnswer(false);
     }
@@ -150,7 +152,7 @@ export default function QuestionsPage() {
       await questionApi.reviewResponse(questionId, { action, notes });
       loadQuestions();
     } catch (err) {
-      alert('Failed to review answer: ' + (err.response?.data?.detail || err.message));
+      alert('Failed to review answer: ' + (err.data?.detail || err.message));
     }
   }
 
@@ -159,7 +161,7 @@ export default function QuestionsPage() {
       await questionApi.updateQuestion(questionId, { status: newStatus });
       loadQuestions();
     } catch (err) {
-      alert('Failed to update question status: ' + (err.response?.data?.detail || err.message));
+      alert('Failed to update question status: ' + (err.data?.detail || err.message));
     }
   }
 
@@ -184,7 +186,7 @@ export default function QuestionsPage() {
       {/* Filter Toolbar */}
       <div className={styles.toolbar}>
         <div className={styles.filterRow}>
-          {['ALL', 'OPEN', 'ANSWERED', 'RESOLVED', 'DISMISSED'].map((status) => (
+          {['ALL', 'OPEN', 'DRAFT', 'ANSWERED', 'RESOLVED', 'DISMISSED'].map((status) => (
             <button
               key={status}
               className={`${styles.filterChip} ${filterStatus === status ? styles.activeChip : ''}`}
@@ -373,6 +375,17 @@ export default function QuestionsPage() {
                         Request Revision
                       </button>
                     </>
+                  )}
+
+                  {/* Publish DRAFT AI-suggested question to OPEN */}
+                  {statusUpper === 'DRAFT' && (
+                    <button
+                      className={styles.acceptBtn}
+                      onClick={() => handleTransitionQuestion(q.id, 'OPEN')}
+                    >
+                      <CheckCircle2 size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+                      Publish Question
+                    </button>
                   )}
 
                   {/* Reopen if resolved or dismissed */}

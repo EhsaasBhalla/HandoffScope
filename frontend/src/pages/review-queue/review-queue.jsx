@@ -134,6 +134,11 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Review action failed');
     },
   });
 
@@ -142,6 +147,9 @@ export default function ReviewQueuePage() {
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Update claim failed');
     },
   });
 
@@ -153,6 +161,9 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
     },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Move claim failed');
+    },
   });
 
   // Create Approved Version Mutation
@@ -162,8 +173,15 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['case-versions', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setShowApproveModal(false);
       setAmendmentReason('');
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to approve version');
     },
   });
 

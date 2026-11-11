@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_db
 from app.modules.documents.models import Document
 from app.modules.documents.service import create_document, validate_upload
+from app.modules.projects.models import Project
 
 router = APIRouter(tags=["Documents"])
 
@@ -38,17 +39,23 @@ async def upload_document(
     db: Session = Depends(get_db),
 ):
     """Upload a document to a project."""
-    file_data = await file.read()
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-    error = validate_upload(file.filename, file.content_type, len(file_data))
+    file_data = await file.read()
+    filename = file.filename or "untitled.txt"
+    content_type = file.content_type or ""
+
+    error = validate_upload(filename, content_type, len(file_data))
     if error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error)
 
     doc = create_document(
         db,
         project_id=project_id,
-        filename=file.filename,
-        content_type=file.content_type,
+        filename=filename,
+        content_type=content_type,
         file_data=file_data,
         uploaded_by_id=user.id,
     )

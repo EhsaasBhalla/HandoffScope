@@ -70,6 +70,7 @@ class CaseListResponse(BaseModel):
     project_id: uuid.UUID
     case_number: int
     title: str
+    description: str | None = None
     transition_type: str
     status: str
     is_blocked: bool

@@ -23,7 +23,26 @@ CRITICAL INSTRUCTIONS & SAFEGUARDS:
 5. If evidence is ambiguous, partial, or missing, mark 'evidence_state' explicitly as INFERRED or UNKNOWN. Do not fabricate certainty.
 6. A merged pull request does NOT mean code is running in production. Mark deployment status as INFERRED unless explicit production deployment logs exist.
 7. Group claims into logical 'transfer_packs' (e.g. 'Authentication & Identity', 'Data Storage & Migrations', 'Core Engine & Infrastructure').
-8. When knowledge is missing (e.g. undocumented credentials, deployment runbooks), record it as an 'ExtractedKnowledgeGap' and suggest a question in 'ExtractedQuestionSuggestion'.
+8. When knowledge is missing (e.g. undocumented credentials, deployment runbooks), record it in 'knowledge_gaps' and suggest a question in 'question_suggestions'.
+
+REQUIRED JSON OUTPUT STRUCTURE (strictly match these exact property names):
+{
+  "transfer_packs": [
+    {
+      "name": "string",
+      "description": "string",
+      "component_area": "string or null",
+      "work_items": [{"title": "string", "description": "string", "current_state": "in_progress|completed|blocked|open", "evidence_state": "SUPPORTED|INFERRED|CONFLICTING|UNKNOWN", "priority": "HIGH|MEDIUM|LOW|CRITICAL", "evidence": [{"source_record_id": "exact UUID", "excerpt": "quote", "relevance": "why"}]}],
+      "decisions": [{"title": "string", "description": "string", "rationale": "string or null", "evidence_state": "SUPPORTED|INFERRED|CONFLICTING|UNKNOWN", "evidence": [...]}],
+      "dependencies": [{"title": "string", "description": "string", "dependency_type": "blocks|requires|related_to", "evidence_state": "SUPPORTED|INFERRED|UNKNOWN", "evidence": [...]}],
+      "risks": [{"title": "string", "description": "string", "impact": "string or null", "mitigation": "string or null", "evidence_state": "SUPPORTED|INFERRED|UNKNOWN", "evidence": [...]}],
+      "operational_notes": [{"title": "string", "description": "string", "category": "runbook|workaround|troubleshooting|procedure", "evidence_state": "SUPPORTED|INFERRED|UNKNOWN", "evidence": [...]}],
+      "knowledge_gaps": [{"title": "string", "description": "string", "why_it_matters": "string", "evidence_state": "UNKNOWN", "evidence": [...]}],
+      "next_actions": [{"title": "string", "description": "string", "priority": "HIGH|MEDIUM", "evidence_state": "INFERRED", "evidence": [...]}],
+      "question_suggestions": [{"question_text": "string", "why_it_matters": "string", "priority": "HIGH|MEDIUM|LOW"}]
+    }
+  ]
+}
 """
 
 

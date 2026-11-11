@@ -38,6 +38,11 @@ router = APIRouter(tags=["Reviews & Approval"])
 def _to_version_out(v: HandoverVersion) -> HandoverVersionOut:
     snap = v.snapshot_json or {}
     meta = snap.get("metadata", {})
+    packs_list = snap.get("transfer_packs") or snap.get("packs") or []
+    computed_claims = sum(
+        p.get("claims_count", len(p.get("claims", []))) if isinstance(p, dict) else 0
+        for p in packs_list
+    )
     return HandoverVersionOut(
         id=v.id,
         case_id=v.case_id,
@@ -49,8 +54,8 @@ def _to_version_out(v: HandoverVersion) -> HandoverVersionOut:
         amendment_reason=v.amendment_reason,
         previous_version_id=v.previous_version_id,
         created_at=v.created_at,
-        total_packs=meta.get("total_packs", len(snap.get("transfer_packs", []))),
-        total_claims=meta.get("total_claims", 0),
+        total_packs=meta.get("total_packs", len(packs_list)),
+        total_claims=meta.get("total_claims", computed_claims),
     )
 
 

@@ -134,6 +134,8 @@ export default function TransferPackDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['pack-questions', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
     },
   });
 
@@ -143,6 +145,7 @@ export default function TransferPackDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      setSourcePackIdToMerge('');
       setShowMergeModal(false);
     },
   });
@@ -345,10 +348,10 @@ export default function TransferPackDetailPage() {
               claim={claim}
               availablePacks={allPacks || []}
               onMoveClaim={(claimId, targetPackId) =>
-                moveClaimMutation.mutate({ claimId, targetPackId })
+                moveClaimMutation.mutateAsync({ claimId, targetPackId })
               }
               onUpdateClaim={(claimId, data) =>
-                updateClaimMutation.mutate({ claimId, data })
+                updateClaimMutation.mutateAsync({ claimId, data })
               }
               enableReview={true}
               onReviewClaim={(claimId, data) =>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   CheckSquare,
@@ -47,6 +47,14 @@ export function ClaimCard({
   const [reviewReason, setReviewReason] = useState('');
   const [reviewEditedBody, setReviewEditedBody] = useState(claim.body_text || '');
   const [showOriginal, setShowOriginal] = useState(false);
+
+  // Sync edit form state when claim prop changes
+  useEffect(() => {
+    setEditTitle(claim.title);
+    setEditBody(claim.body_text || '');
+    setEditPriority(claim.priority || 'MEDIUM');
+    setReviewEditedBody(claim.body_text || '');
+  }, [claim.id, claim.title, claim.body_text, claim.priority]);
 
   // Fetch full evidence items if expanded
   const { data: claimDetail, isLoading: evidenceLoading } = useQuery({
@@ -97,43 +105,48 @@ export function ClaimCard({
 
   const handleExecuteReview = async (action) => {
     if (!onReviewClaim) return;
-    if (action === 'accept') {
-      await onReviewClaim(claim.id, { action: 'accept' });
-    } else if (action === 'resubmit') {
-      await onReviewClaim(claim.id, { action: 'resubmit' });
-    } else if (action === 'reject') {
-      if (!reviewReason.trim()) {
-        alert('A reason is required to reject a claim.');
-        return;
+    try {
+      if (action === 'accept') {
+        await onReviewClaim(claim.id, { action: 'accept' });
+      } else if (action === 'resubmit') {
+        await onReviewClaim(claim.id, { action: 'resubmit' });
+      } else if (action === 'reject') {
+        if (!reviewReason.trim()) {
+          alert('A reason is required to reject a claim.');
+          return;
+        }
+        await onReviewClaim(claim.id, { action: 'reject', reason: reviewReason.trim() });
+        setReviewMode(null);
+        setReviewReason('');
+      } else if (action === 'needs_clarification') {
+        if (!reviewReason.trim()) {
+          alert('Clarification details are required.');
+          return;
+        }
+        await onReviewClaim(claim.id, { action: 'needs_clarification', reason: reviewReason.trim() });
+        setReviewMode(null);
+        setReviewReason('');
+      } else if (action === 'edit_and_accept') {
+        if (!reviewEditedBody.trim()) {
+          alert('Edited body text cannot be empty.');
+          return;
+        }
+        await onReviewClaim(claim.id, {
+          action: 'edit_and_accept',
+          edited_body: reviewEditedBody.trim(),
+          reason: reviewReason.trim() || undefined,
+        });
+        setReviewMode(null);
+        setReviewReason('');
       }
-      await onReviewClaim(claim.id, { action: 'reject', reason: reviewReason.trim() });
-      setReviewMode(null);
-      setReviewReason('');
-    } else if (action === 'needs_clarification') {
-      if (!reviewReason.trim()) {
-        alert('Clarification details are required.');
-        return;
-      }
-      await onReviewClaim(claim.id, { action: 'needs_clarification', reason: reviewReason.trim() });
-      setReviewMode(null);
-      setReviewReason('');
-    } else if (action === 'edit_and_accept') {
-      if (!reviewEditedBody.trim()) {
-        alert('Edited body text cannot be empty.');
-        return;
-      }
-      await onReviewClaim(claim.id, {
-        action: 'edit_and_accept',
-        edited_body: reviewEditedBody.trim(),
-        reason: reviewReason.trim() || undefined,
-      });
-      setReviewMode(null);
-      setReviewReason('');
+    } catch (err) {
+      alert(err?.data?.detail || err?.message || 'Review action failed');
     }
   };
 
   const evidenceItems = claimDetail?.evidence || [];
   const evCount = claim.evidence_count ?? evidenceItems.length;
+  const targetPacks = availablePacks.filter((p) => p.id !== claim.transfer_pack_id);
 
   return (
     <div className={styles.card}>
@@ -155,7 +168,7 @@ export function ClaimCard({
 
           {/* Action buttons */}
           <div className={styles.actionsGroup}>
-            {availablePacks.length > 0 && onMoveClaim && (
+            {targetPacks.length > 0 && onMoveClaim && (
               isMoving ? (
                 <select
                   className={styles.moveSelect}
@@ -165,13 +178,11 @@ export function ClaimCard({
                   onBlur={() => setIsMoving(false)}
                 >
                   <option value="" disabled>Move to Pack...</option>
-                  {availablePacks
-                    .filter((p) => p.id !== claim.transfer_pack_id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
+                  {targetPacks.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
                 </select>
               ) : (
                 <button
@@ -339,7 +350,7 @@ export function ClaimCard({
                 }}
               />
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button className={styles.actionBtn} onClick={() => setReviewMode(null)}>
+                <button className={styles.actionBtn} onClick={() => { setReviewMode(null); setReviewReason(''); }}>
                   Cancel
                 </button>
                 <button

@@ -116,7 +116,7 @@ export default function HandoverCaseDetailPage() {
   const { data: versions } = useQuery({
     queryKey: ['case-versions', caseId],
     queryFn: () => reviewApi.listVersions(caseId),
-    enabled: !!caseId && (activeTab === 'versions' || activeTab === 'review'),
+    enabled: !!caseId && (activeTab === 'versions' || activeTab === 'review' || activeTab === 'sharing'),
   });
 
   const reviewClaimMutation = useMutation({
@@ -125,6 +125,11 @@ export default function HandoverCaseDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Review action failed');
     },
   });
 
@@ -132,11 +137,18 @@ export default function HandoverCaseDetailPage() {
     mutationFn: (data) => reviewApi.createVersion(caseId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['case-versions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setShowApproveModal(false);
       setAmendmentReason('');
       setActiveTab('versions');
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to approve version');
     },
   });
 
@@ -237,7 +249,14 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setActiveTab('packs');
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Reconstruction failed');
     },
   });
 
@@ -335,7 +354,7 @@ export default function HandoverCaseDetailPage() {
             </button>
           )}
 
-          {caseData.status === 'RECONSTRUCTING' && !caseData.is_blocked && (
+          {['RECONSTRUCTING', 'NEEDS_INPUT'].includes(caseData.status) && !caseData.is_blocked && (
             <button
               className={styles.primaryActionBtn}
               onClick={() => statusMutation.mutate({ status: 'UNDER_REVIEW' })}
@@ -1339,7 +1358,7 @@ export default function HandoverCaseDetailPage() {
                 <option value="">Choose a team member...</option>
                 {(projectMembers || []).map((m) => (
                   <option key={m.user_id} value={m.user_id}>
-                    {m.name || m.email} ({m.role})
+                    {m.user_display_name || m.name || m.user_email || m.email} ({m.role})
                   </option>
                 ))}
               </select>
@@ -1420,7 +1439,7 @@ export default function HandoverCaseDetailPage() {
                 <option value="">Select successor engineer...</option>
                 {(projectMembers || []).map((m) => (
                   <option key={m.user_id} value={m.user_id}>
-                    {m.name || m.email} ({m.role})
+                    {m.user_display_name || m.name || m.user_email || m.email} ({m.role})
                   </option>
                 ))}
               </select>

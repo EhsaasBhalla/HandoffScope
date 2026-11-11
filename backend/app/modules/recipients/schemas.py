@@ -57,7 +57,7 @@ class SuccessorProjectedClaimOut(BaseModel):
     transfer_pack_id: uuid.UUID
     claim_type: str
     title: str
-    body_text: str
+    body_text: Optional[str] = None
     original_body_text: Optional[str] = None
     evidence_state: str
     freshness: str

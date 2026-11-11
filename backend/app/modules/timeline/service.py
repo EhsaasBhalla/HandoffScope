@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.enums import SourceRecordType
+from app.db.enums import Sensitivity, SourceRecordType
 from app.modules.audit.models import AuditEvent
 from app.modules.handover_cases.models import HandoverCase
+from app.modules.identity.models import IdentityMapping
 from app.modules.ingestion.models import SourceEvent, SourceRecord
+
+
+def _to_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 from app.modules.sources.models import ConnectedSource
 from app.modules.timeline.schemas import TimelineItemOut, TimelineResponse
 from app.modules.workspaces.models import User
@@ -72,7 +79,12 @@ def get_project_timeline(
                 ev_type = rec.record_type.value
                 title = rec.title or f"{rec.record_type.value} #{rec.external_id}"
 
-            item_time = rec.external_created_at or rec.created_at
+            item_time = _to_utc(rec.external_created_at or rec.created_at)
+            rec_summary = (
+                "[RESTRICTED CONTENT WITHHELD]"
+                if getattr(rec, "sensitivity", None) == Sensitivity.RESTRICTED
+                else rec.body
+            )
 
             raw_items.append(
                 TimelineItemOut(
@@ -80,7 +92,7 @@ def get_project_timeline(
                     timestamp=item_time,
                     event_type=ev_type,
                     title=title,
-                    summary=rec.body,
+                    summary=rec_summary,
                     actor_name=rec.author_name or rec.author_external_id,
                     actor_external_id=rec.author_external_id,
                     actor_mapped_user_id=rec.author_mapped_user_id,
@@ -119,7 +131,7 @@ def get_project_timeline(
                 )
 
                 ev_type_label = f"SOURCE_{ev.event_type.upper()}"
-                item_time = ev.occurred_at or (parent_rec.created_at if parent_rec else datetime.utcnow())
+                item_time = _to_utc(ev.occurred_at or (parent_rec.created_at if parent_rec else datetime.now(timezone.utc)))
 
                 raw_items.append(
                     TimelineItemOut(
@@ -139,22 +151,27 @@ def get_project_timeline(
                     )
                 )
 
-    # 4. Ingest AuditEvents (Project & Case governance events)
+    # 4. Ingest AuditEvents (Project & Case governance events scoped strictly to this project)
     case_ids = [c.id for c in db.query(HandoverCase.id).filter(HandoverCase.project_id == project_id).all()]
+    mapping_ids = [m.id for m in db.query(IdentityMapping.id).filter(IdentityMapping.project_id == project_id).all()]
 
-    audit_query = db.query(AuditEvent).filter(
-        (AuditEvent.entity_type == "project") & (AuditEvent.entity_id == project_id)
-        | (AuditEvent.entity_type == "handover_case") & (AuditEvent.entity_id.in_(case_ids))
-        | (AuditEvent.entity_type.in_(["identity_mapping", "connected_source"]))
-    )
-    audits = audit_query.all()
+    filters = [(AuditEvent.entity_type == "project") & (AuditEvent.entity_id == project_id)]
+    if case_ids:
+        filters.append((AuditEvent.entity_type == "handover_case") & (AuditEvent.entity_id.in_(case_ids)))
+    if source_ids:
+        filters.append((AuditEvent.entity_type == "connected_source") & (AuditEvent.entity_id.in_(source_ids)))
+    if mapping_ids:
+        filters.append((AuditEvent.entity_type == "identity_mapping") & (AuditEvent.entity_id.in_(mapping_ids)))
+
+    from sqlalchemy import or_
+    audits = db.query(AuditEvent).filter(or_(*filters)).all()
 
     for aud in audits:
         actor_user = users_map.get(aud.actor_id) if aud.actor_id else None
         raw_items.append(
             TimelineItemOut(
                 id=f"audit-{aud.id}",
-                timestamp=aud.created_at,
+                timestamp=_to_utc(aud.created_at),
                 event_type="AUDIT",
                 title=aud.summary or f"Audit: {aud.action}",
                 summary=f"Action: {aud.action} on {aud.entity_type}",
@@ -198,14 +215,18 @@ def get_project_timeline(
             or (i.summary and q_search in i.summary.lower())
         ]
 
-    if date_from:
-        filtered = [i for i in filtered if i.timestamp >= date_from]
+    date_from_utc = _to_utc(date_from)
+    date_to_utc = _to_utc(date_to)
+    min_dt = datetime.min.replace(tzinfo=timezone.utc)
 
-    if date_to:
-        filtered = [i for i in filtered if i.timestamp <= date_to]
+    if date_from_utc:
+        filtered = [i for i in filtered if (_to_utc(i.timestamp) or min_dt) >= date_from_utc]
+
+    if date_to_utc:
+        filtered = [i for i in filtered if (_to_utc(i.timestamp) or min_dt) <= date_to_utc]
 
     # 7. Sort reverse chronological
-    filtered.sort(key=lambda x: x.timestamp or datetime.min, reverse=True)
+    filtered.sort(key=lambda x: _to_utc(x.timestamp) or min_dt, reverse=True)
 
     # 8. Pagination
     total = len(filtered)
