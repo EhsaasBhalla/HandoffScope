@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -11,14 +12,18 @@ import {
   ArrowRight,
   PlusCircle,
   Activity,
+  Compass,
+  Sparkles,
 } from 'lucide-react';
 import { dashboardApi } from '../../api/dashboard.api';
 import { projectApi } from '../../api/project.api';
 import { useAuth } from '../../context/AuthContext';
+import { JudgeGuideModal } from '../../components/judge-guide-modal/judge-guide-modal';
 import styles from './overview.module.css';
 
 export default function OverviewPage() {
   const { user } = useAuth();
+  const [showGuide, setShowGuide] = useState(false);
 
   const { data: workspaces } = useQuery({
     queryKey: ['workspaces'],
@@ -69,6 +74,10 @@ export default function OverviewPage() {
           <p>Real-time knowledge reconstruction and handover transfer status.</p>
         </div>
         <div className={styles.quickActions}>
+          <button className={styles.evaluatorBannerBtn} onClick={() => setShowGuide(true)}>
+            <Compass size={16} />
+            <span>Evaluator Guide</span>
+          </button>
           <Link to="/review" className={styles.actionBtn}>
             <Clock size={16} />
             <span>Review Queue</span>
@@ -82,6 +91,30 @@ export default function OverviewPage() {
             <span>Handover Cases</span>
           </Link>
         </div>
+      </div>
+
+      {/* Evaluator Callout Banner */}
+      <div className={styles.evaluatorBanner}>
+        <div className={styles.evaluatorBannerLeft}>
+          <div className={styles.evaluatorBannerIcon}>
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <div className={styles.evaluatorBannerTitle}>
+              Round 3 Judge / Evaluator Walkthrough Available
+            </div>
+            <div className={styles.evaluatorBannerText}>
+              Testing asynchronously? Follow our self-guided 5-Act evaluation script, switch between 4 personas in 1-click, and verify zero-hallucination grounding.
+            </div>
+          </div>
+        </div>
+        <button
+          className={styles.evaluatorBannerOpenBtn}
+          onClick={() => setShowGuide(true)}
+        >
+          <Compass size={16} />
+          <span>Launch 5-Act Guide</span>
+        </button>
       </div>
 
       {/* Real Metric Stats Grid */}
@@ -276,6 +309,11 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+
+      <JudgeGuideModal
+        isOpen={showGuide}
+        onClose={() => setShowGuide(false)}
+      />
     </div>
   );
 }

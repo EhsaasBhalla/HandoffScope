@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Sun, Moon, LogOut, User, ChevronRight } from 'lucide-react';
+import { Sun, Moon, LogOut, User, ChevronRight, Compass } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import styles from './topbar.module.css';
@@ -34,7 +34,7 @@ function getInitials(name) {
     .slice(0, 2);
 }
 
-export function Topbar() {
+export function Topbar({ onOpenGuide }) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -72,6 +72,19 @@ export function Topbar() {
       </div>
 
       <div className={styles.right}>
+        {/* Judge / Evaluator Guide Button */}
+        {onOpenGuide && (
+          <button
+            className={styles.guideBtn}
+            onClick={onOpenGuide}
+            title="Open Evaluator Guide & Interactive Walkthrough"
+          >
+            <Compass size={16} className={styles.guideIcon} />
+            <span className={styles.guideLabel}>Evaluator Guide</span>
+            <span className={styles.guideBadge}>Round 3</span>
+          </button>
+        )}
+
         {/* Theme toggle */}
         <button
           className={styles.iconBtn}
