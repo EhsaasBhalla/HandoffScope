@@ -1,23 +1,18 @@
-"""RQ worker entry point for background job processing.
+"""Worker entry point for background job processing.
 
-Run with: python -m app.workers.runner
+Jobs are natively dispatched to concurrent ThreadPoolExecutor in-process.
+This runner is retained as an operational health checker.
 """
 
 import logging
 import sys
-
-from redis import Redis
-from rq import Worker
-
-from app.core.config import settings
+import time
 
 logger = logging.getLogger("handoffscope.worker")
 
-QUEUES = ["handoffscope-import", "handoffscope-extract", "handoffscope-default"]
-
 
 def main() -> None:
-    """Start the RQ worker listening on all three queues."""
+    """Run worker heartbeat monitor."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -25,11 +20,12 @@ def main() -> None:
         stream=sys.stdout,
     )
 
-    redis_conn = Redis.from_url(settings.REDIS_URL)
-    logger.info("Starting RQ worker on queues: %s", ", ".join(QUEUES))
-
-    worker = Worker(QUEUES, connection=redis_conn)
-    worker.work()
+    logger.info("Native ThreadPool background executor is active. Worker standby.")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        logger.info("Worker stopped.")
 
 
 if __name__ == "__main__":

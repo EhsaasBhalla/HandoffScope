@@ -1,24 +1,33 @@
-"""Job service — enqueue, track, update background jobs."""
+"""Job service — enqueue, track, update background jobs using concurrent background worker pool."""
 
 from __future__ import annotations
 
+import importlib
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from redis import Redis
-from rq import Queue
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.db.enums import JobStatus, JobType
 from app.modules.jobs.models import Job
 
 logger = logging.getLogger("handoffscope.jobs")
 
+# Dedicated background executor pool (zero external Redis dependency)
+_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="handoffscope-worker")
 
-def get_redis() -> Redis:
-    return Redis.from_url(settings.REDIS_URL)
+
+def _run_task_wrapper(task_func: str, job_id_str: str) -> None:
+    """Execute a task function dynamically in a worker thread."""
+    try:
+        module_name, func_name = task_func.rsplit(".", 1)
+        mod = importlib.import_module(module_name)
+        func = getattr(mod, func_name)
+        func(job_id_str)
+    except Exception as exc:
+        logger.exception("Error executing background job %s (%s): %s", job_id_str, task_func, exc)
 
 
 def enqueue_job(
@@ -33,7 +42,7 @@ def enqueue_job(
     queue_name: str = "handoffscope-default",
     task_func: str | None = None,
 ) -> Job:
-    """Create a job record and enqueue it to RQ."""
+    """Create a job record and dispatch it to the background thread pool."""
     # Check idempotency
     if idempotency_key:
         existing = db.query(Job).filter(Job.idempotency_key == idempotency_key).first()
@@ -53,50 +62,12 @@ def enqueue_job(
     db.add(job)
     db.flush()
 
-    # Enqueue to RQ if a task function path is specified
+    # Dispatch directly to background thread pool
     if task_func:
-        enqueued_to_redis = False
-        try:
-            redis_conn = get_redis()
-            redis_conn.ping()
-            q = Queue(queue_name, connection=redis_conn)
-            q.enqueue(
-                task_func,
-                str(job.id),
-                job_timeout="30m",
-                result_ttl=86400,
-            )
-            logger.info("Enqueued job %s to queue %s", job.id, queue_name)
-            enqueued_to_redis = True
-        except Exception as redis_exc:
-            logger.info(
-                "Redis queue unavailable (%s). Running job %s in local background thread.",
-                redis_exc,
-                job.id,
-            )
+        _EXECUTOR.submit(_run_task_wrapper, task_func, str(job.id))
+        logger.info("Dispatched background job %s (%s) to worker pool", job.id, task_func)
 
-        if not enqueued_to_redis:
-            # Fallback to local background thread for local development without Redis
-            try:
-                import importlib
-                import threading
-
-                module_name, func_name = task_func.rsplit(".", 1)
-                mod = importlib.import_module(module_name)
-                func = getattr(mod, func_name)
-
-                thread = threading.Thread(
-                    target=func,
-                    args=(str(job.id),),
-                    daemon=True,
-                )
-                thread.start()
-                logger.info("Executed job %s via fallback local thread", job.id)
-            except Exception as thread_exc:
-                logger.error("Failed to execute background job %s: %s", job.id, thread_exc)
-                job.status = JobStatus.FAILED
-                job.error_message = f"Failed to enqueue or execute: {thread_exc}"
-                db.flush()
+    return job
 
     return job
 

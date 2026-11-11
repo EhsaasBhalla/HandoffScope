@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+psycopg2://handoffscope:handoffscope_dev@localhost:5432/handoffscope"
 
-    # ── Redis ─────────────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # ── Redis (Optional / Not Required) ───────────────────────
+    REDIS_URL: str = ""
 
     # ── Security ──────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
