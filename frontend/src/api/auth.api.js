@@ -2,7 +2,7 @@
  * Auth API methods.
  */
 
-import { httpClient, setCsrfToken } from './httpClient';
+import { clearAuthTokens, httpClient, setAuthTokens, setCsrfToken } from './httpClient';
 
 export const authApi = {
   async login(email, password) {
@@ -10,11 +10,21 @@ export const authApi = {
     if (data.csrf_token) {
       setCsrfToken(data.csrf_token);
     }
+    if (data.access_token || data.refresh_token) {
+      setAuthTokens({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+      });
+    }
     return data;
   },
 
   async logout() {
-    return httpClient.post('/api/v1/auth/logout');
+    try {
+      return await httpClient.post('/api/v1/auth/logout');
+    } finally {
+      clearAuthTokens();
+    }
   },
 
   async me() {
@@ -25,6 +35,9 @@ export const authApi = {
     const data = await httpClient.post('/api/v1/auth/refresh');
     if (data.csrf_token) {
       setCsrfToken(data.csrf_token);
+    }
+    if (data.access_token) {
+      setAuthTokens({ accessToken: data.access_token });
     }
     return data;
   },

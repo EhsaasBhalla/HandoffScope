@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
 
-  // On mount, try to get current user from cookie-based session
+  // On mount, try to get current user from cookie/Bearer session (401 triggers silent refresh automatically)
   useEffect(() => {
     let cancelled = false;
     authApi.me()
@@ -22,8 +22,19 @@ export function AuthProvider({ children }) {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, []);
+
+    const handleExpired = () => {
+      if (!cancelled) {
+        queryClient.clear();
+        setUser(null);
+      }
+    };
+    window.addEventListener('handoffscope:auth-expired', handleExpired);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('handoffscope:auth-expired', handleExpired);
+    };
+  }, [queryClient]);
 
   const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password);

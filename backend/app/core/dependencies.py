@@ -22,7 +22,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)):
-    """Extract the authenticated user from the JWT cookie.
+    """Extract the authenticated user from JWT cookie or Authorization Bearer header.
 
     Returns the User ORM instance or raises 401.
     """
@@ -31,9 +31,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
     token = request.cookies.get("access_token")
     if not token:
+        auth_header = request.headers.get("Authorization") or ""
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated — no access token cookie",
+            detail="Not authenticated — no access token cookie or bearer token",
         )
 
     payload = decode_token(token)

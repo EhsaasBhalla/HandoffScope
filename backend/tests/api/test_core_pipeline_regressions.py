@@ -180,3 +180,48 @@ def test_auth_refresh_timeline_dates_versions_and_resync():
     assert res1.status_code == 202, f"Sync #1 failed: {res1.text}"
     res2 = client.post(f"/api/v1/sources/{src.id}/import")
     assert res2.status_code == 202, f"Sync #2 failed: {res2.text}"
+
+
+def test_auth_bearer_fallback_refresh_body_and_https_cookies():
+    # Use a fresh cookie-less TestClient simulating third-party cookies blocked across Vercel -> Render
+    login_client = TestClient(app)
+    login_res = login_client.post(
+        "/api/v1/auth/login",
+        headers={"X-Forwarded-Proto": "https"},
+        json={"email": "maya.sharma@example.test", "password": "handoffscope-dev-2026"},
+    )
+    assert login_res.status_code == 200
+    body = login_res.json()
+    assert body["access_token"]
+    assert body["refresh_token"]
+
+    # HTTPS proxy header must enforce SameSite=none; Secure even when APP_ENV=development
+    set_cookie_hdrs = [v.lower() for k, v in login_res.headers.multi_items() if k.lower() == "set-cookie"]
+    assert any("samesite=none" in h and "secure" in h for h in set_cookie_hdrs)
+
+    # Fresh client WITHOUT any cookies succeeds via Authorization: Bearer
+    bare_client = TestClient(app)
+    me_no_cookie = bare_client.get("/api/v1/auth/me")
+    assert me_no_cookie.status_code == 401
+
+    me_bearer = bare_client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+    )
+    assert me_bearer.status_code == 200
+    assert me_bearer.json()["email"] == "maya.sharma@example.test"
+
+    # Cookie-less refresh via JSON body returns fresh access_token cleanly
+    ref_res = bare_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": body["refresh_token"]},
+    )
+    assert ref_res.status_code == 200
+    new_access = ref_res.json()["access_token"]
+    assert new_access
+
+    me_refreshed = bare_client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {new_access}"},
+    )
+    assert me_refreshed.status_code == 200

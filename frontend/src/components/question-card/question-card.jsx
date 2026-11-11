@@ -111,11 +111,14 @@ export function QuestionThreadCard({
 
   const handleHumanSubmit = async () => {
     if (!answerText.trim() || isSubmittingHuman) return;
+    setAiError('');
     setIsSubmittingHuman(true);
     try {
       await onSubmitAnswer(q.id, answerText.trim());
       setIsAnswering(false);
       setAnswerText('');
+    } catch (err) {
+      setAiError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to submit answer.');
     } finally {
       setIsSubmittingHuman(false);
     }
@@ -123,6 +126,7 @@ export function QuestionThreadCard({
 
   const handleReviewAction = async (action, extra = {}) => {
     if (isReviewing) return;
+    setAiError('');
     setIsReviewing(true);
     try {
       const updated = await onReviewResponse(q.id, { action, ...extra });
@@ -134,6 +138,8 @@ export function QuestionThreadCard({
         setAmendedText('');
         setAmendNotes('');
       }
+    } catch (err) {
+      setAiError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to review response.');
     } finally {
       setIsReviewing(false);
     }

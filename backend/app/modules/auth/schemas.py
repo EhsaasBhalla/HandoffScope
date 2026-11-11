@@ -19,7 +19,15 @@ class TokenResponse(BaseModel):
 
     message: str = "Login successful"
     csrf_token: str
+    access_token: str | None = None
+    refresh_token: str | None = None
     user: UserResponse
+
+
+class RefreshRequest(BaseModel):
+    """Optional JSON body for POST /api/v1/auth/refresh when 3rd-party cookies are blocked."""
+
+    refresh_token: str | None = None
 
 
 class UserResponse(BaseModel):

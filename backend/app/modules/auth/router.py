@@ -2,24 +2,28 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user, get_db, get_user_context_capabilities
 from app.core.security import decode_token, create_access_token, generate_csrf_token
-from app.modules.auth.schemas import LoginRequest, TokenResponse, UserResponse
+from app.modules.auth.schemas import LoginRequest, RefreshRequest, TokenResponse, UserResponse
 from app.modules.auth.service import authenticate_user, create_tokens_for_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# Cookie settings
-_COOKIE_KWARGS = {
-    "httponly": True,
-    "samesite": "none" if settings.APP_ENV != "development" else "lax",
-    "secure": settings.APP_ENV != "development",
-    "path": "/",
-}
+
+def _cookie_kwargs_for_request(request: Request) -> dict:
+    """Resolve cookie flags dynamically so HTTPS proxy deployments always use SameSite=None; Secure."""
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "").lower()
+    is_https = proto == "https" or settings.APP_ENV != "development"
+    return {
+        "httponly": True,
+        "samesite": "none" if is_https else "lax",
+        "secure": is_https,
+        "path": "/",
+    }
 
 
 def _build_user_response(db: Session, user) -> UserResponse:
@@ -32,35 +36,49 @@ def _build_user_response(db: Session, user) -> UserResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    """Authenticate and set JWT cookies."""
+def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Authenticate and set JWT cookies (plus token fields for bearer fallback)."""
     user = authenticate_user(db, body.email, body.password)
     tokens = create_tokens_for_user(user)
+    cookie_kwargs = _cookie_kwargs_for_request(request)
 
     response.set_cookie(
         key="access_token",
         value=tokens["access_token"],
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        **_COOKIE_KWARGS,
+        **cookie_kwargs,
     )
     response.set_cookie(
         key="refresh_token",
         value=tokens["refresh_token"],
         max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
-        **_COOKIE_KWARGS,
+        **cookie_kwargs,
     )
 
     return TokenResponse(
         csrf_token=tokens["csrf_token"],
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
         user=_build_user_response(db, user),
     )
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
     """Clear JWT cookies."""
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+    cookie_kwargs = _cookie_kwargs_for_request(request)
+    response.delete_cookie(
+        "access_token",
+        path=cookie_kwargs["path"],
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+    )
+    response.delete_cookie(
+        "refresh_token",
+        path=cookie_kwargs["path"],
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+    )
     return {"message": "Logged out"}
 
 
@@ -71,11 +89,20 @@ def me(user=Depends(get_current_active_user), db: Session = Depends(get_db)):
 
 
 @router.post("/refresh")
-def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
-    """Issue new access token from valid refresh token."""
+def refresh(
+    request: Request,
+    response: Response,
+    body: RefreshRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    """Issue new access token from valid refresh cookie or body/header fallback."""
     from app.modules.workspaces.models import User
 
-    refresh_tok = request.cookies.get("refresh_token")
+    refresh_tok = (
+        request.cookies.get("refresh_token")
+        or (body.refresh_token if body and body.refresh_token else None)
+        or request.headers.get("X-Refresh-Token")
+    )
     if not refresh_tok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
 
@@ -96,12 +123,13 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
 
     new_access = create_access_token({"sub": str(user.id), "email": user.email})
     csrf = generate_csrf_token()
+    cookie_kwargs = _cookie_kwargs_for_request(request)
 
     response.set_cookie(
         key="access_token",
         value=new_access,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        **_COOKIE_KWARGS,
+        **cookie_kwargs,
     )
 
-    return {"message": "Token refreshed", "csrf_token": csrf}
+    return {"message": "Token refreshed", "csrf_token": csrf, "access_token": new_access}
