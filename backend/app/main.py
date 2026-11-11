@@ -26,6 +26,9 @@ async def lifespan(app: FastAPI):
                 from app.seed.demo_seed import seed_demo_data
                 seed_demo_data(db)
                 logger.info("Demo data seeding completed on startup.")
+            else:
+                from app.seed.repo_fixtures import seed_project_repo_fixtures
+                seed_project_repo_fixtures(db)
         finally:
             db.close()
     except Exception as exc:

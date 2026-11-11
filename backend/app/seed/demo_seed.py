@@ -257,6 +257,10 @@ def seed_demo_data(db: Session) -> None:
     from app.seed.demo_data import seed_synthetic_fixture
     seed_synthetic_fixture(db)
 
+    # ── Seed Pydantic & Zulip showcase datasets ───────────────
+    from app.seed.repo_fixtures import seed_project_repo_fixtures
+    seed_project_repo_fixtures(db)
+
 
 def main() -> None:
     """Entry point for running seed from command line."""
