@@ -260,3 +260,87 @@ def test_gemini_provider_bounded_retry_no_validation_retry_and_explicit_fallback
     assert meta2["fallback_used"] is True
     assert "validation error" in (meta2["fallback_reason"] or "").lower()
     assert meta2["model_used"] == "mock-extraction-v1"
+
+    # Case C: Unescaped raw newlines inside string OR truncated JSON tail (Unterminated string) recovers cleanly
+    raw_newline_json = (
+        '{\n'
+        '  "transfer_packs": [{\n'
+        '    "name": "Core Platform",\n'
+        '    "description": "Test multiline\nnewline inside JSON string",\n'
+        '    "work_items": [{\n'
+        '      "title": "Retry logic",\n'
+        '      "description": "Adds retry handling",\n'
+        '      "current_state": "completed",\n'
+        '      "evidence_state": "SUPPORTED",\n'
+        '      "evidence": [{"source_record_id": "' + str(rec.id) + '", "excerpt": "Adds retry handling", "relevance": "direct"}]\n'
+        '    },\n'
+        '    {\n'
+        '      "title": "Truncated second item cut off mid string'
+    )
+
+    def fake_post_truncated(url, headers=None, json=None, timeout=None):
+        assert json["generationConfig"]["maxOutputTokens"] == 16384
+        return httpx.Response(
+            200,
+            json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": raw_newline_json}]}}]},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post_truncated)
+    provider3 = GeminiProvider(api_key="dummy-key", model_name="gemini-3.5-flash", max_retries=2)
+    res3, meta3 = provider3.extract_structured(SYSTEM_PROMPT, ctx, ExtractionResult)
+    assert meta3["provider_mode"] == "live"
+    assert meta3["fallback_used"] is False
+    assert len(res3.transfer_packs) == 1
+    assert len(res3.transfer_packs[0].work_items) == 1
+
+    # Case D: Q&A truncated mid-answer_text still recovers partial valid answer & uses 8192 maxOutputTokens
+    qa_trunc = '{"answer_text": "Run pg_ctl promote on standby\nline2", "answer_status": "answered", "limitations": "Still writing'
+    qa_calls = {"count": 0}
+
+    def fake_post_qa_truncated(url, headers=None, json=None, timeout=None):
+        qa_calls["count"] += 1
+        assert json["generationConfig"]["maxOutputTokens"] == 8192
+        return httpx.Response(
+            200,
+            json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": qa_trunc}]}}]},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post_qa_truncated)
+    from app.integrations.llm.schemas.qa import QuestionAnswerResult
+    qa_res, qa_meta = provider3.answer_question("sys", "usr", QuestionAnswerResult)
+    assert qa_calls["count"] == 1
+    assert qa_meta["provider_mode"] == "live"
+    assert "pg_ctl promote" in qa_res.answer_text
+
+    # Case E: Unrecoverable MAX_TOKENS truncation retries once with doubled maxOutputTokens then succeeds
+    retry_trunc = {"count": 0}
+
+    def fake_post_expand_tokens(url, headers=None, json=None, timeout=None):
+        retry_trunc["count"] += 1
+        if retry_trunc["count"] == 1:
+            assert json["generationConfig"]["maxOutputTokens"] == 16384
+            return httpx.Response(
+                200,
+                json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": '{"transfer_packs": [{"na'}]}}]},
+            )
+        assert json["generationConfig"]["maxOutputTokens"] == 32768
+        good = {
+            "transfer_packs": [{
+                "name": "Recovered",
+                "description": "Succeeded after expanding output token budget",
+                "work_items": [{
+                    "title": "Valid Item",
+                    "description": "Recovered",
+                    "current_state": "open",
+                    "evidence_state": "SUPPORTED",
+                    "evidence": [{"source_record_id": str(rec.id), "excerpt": "Adds retry handling", "relevance": "direct"}],
+                }],
+            }]
+        }
+        import json as _json
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": _json.dumps(good)}]}}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post_expand_tokens)
+    res4, meta4 = provider3.extract_structured(SYSTEM_PROMPT, ctx, ExtractionResult)
+    assert retry_trunc["count"] == 2
+    assert meta4["provider_mode"] == "live"

@@ -24,6 +24,7 @@ STRICT RULES & SAFEGUARDS:
 6. NEVER conclude a change is deployed in production solely from a merged PR without deployment logs/verification.
 7. NEVER infer ownership solely from commit authorship, and NEVER let a casual comment override authoritative issue/PR open/closed state.
 8. Every item in "evidence_references" MUST copy the EXACT "ID" and "SourceClass" ("SOURCE_RECORD" or "CLAIM") from the evidence blocks below. NEVER fabricate IDs.
+9. Output strict RFC-8259 JSON only: escape all quotes and newlines inside JSON string values cleanly, and keep excerpts concise (single line, <= 200 chars).
 
 REQUIRED JSON OUTPUT:
 {

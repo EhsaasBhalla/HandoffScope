@@ -433,6 +433,7 @@ CRITICAL INSTRUCTIONS & SAFEGUARDS:
 6. A merged pull request does NOT mean code is running in production. Mark deployment status as INFERRED unless explicit production deployment logs exist.
 7. Group claims into logical 'transfer_packs' (e.g. 'Authentication & Identity', 'Data Storage & Migrations', 'Core Engine & Infrastructure').
 8. When knowledge is missing (e.g. undocumented credentials, deployment runbooks), record it in 'knowledge_gaps' and suggest a question in 'question_suggestions'.
+9. Output strict RFC-8259 JSON only: keep 'excerpt' values concise (single line, <= 200 chars), escape all embedded quotes and newlines properly, and never include unescaped line breaks inside JSON string values.
 
 REQUIRED JSON OUTPUT STRUCTURE (strictly match these exact property names):
 {
