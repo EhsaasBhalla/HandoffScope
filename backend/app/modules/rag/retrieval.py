@@ -103,12 +103,13 @@ def retrieve_permitted_chunks(
 
     for ch in candidates:
         title_tokens = _tokenize(ch.title)
-        body_tokens = _tokenize(ch.content_text)
         loc_str = str((ch.locator_json or {}).get("locator") or "")
         loc_tokens = _tokenize(loc_str)
 
-        all_tokens = title_tokens | body_tokens | loc_tokens
-        overlap_count = len(q_tokens & all_tokens)
+        # Fast token matching over title, locator, and body avoids heavy regex tokenization on large documents
+        body_low = (ch.content_text or "").lower()
+        matched_q_tokens = {t for t in q_tokens if t in title_tokens or t in loc_tokens or t in body_low}
+        overlap_count = len(matched_q_tokens)
         lexical_score = overlap_count / max(1, min(len(q_tokens), 8))
 
         # Exact identifier boost (PR numbers, commit SHAs, file paths, title phrases)

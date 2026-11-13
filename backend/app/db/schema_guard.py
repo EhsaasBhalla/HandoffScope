@@ -90,6 +90,17 @@ def ensure_additive_schema(bind_engine: Engine) -> None:
     _ensure_column("responsibility_assignments", "delegation_note", "TEXT")
     _ensure_column("responsibility_assignments", "revoked_at", "TIMESTAMP WITH TIME ZONE" if is_pg else "DATETIME")
 
+    def _ensure_index(table: str, idx_name: str, index_ddl: str) -> None:
+        if table not in existing_tables:
+            return
+        idx_names = {idx["name"] for idx in inspector.get_indexes(table)}
+        if idx_name not in idx_names:
+            try:
+                with bind_engine.begin() as conn:
+                    conn.execute(text(index_ddl))
+            except Exception:
+                pass
+
     if "claims" in existing_tables:
         existing_indexes = {idx["name"] for idx in inspector.get_indexes("claims")}
         if (
@@ -106,3 +117,29 @@ def ensure_additive_schema(bind_engine: Engine) -> None:
                     )
             except Exception:
                 pass
+
+    _ensure_index(
+        "claims",
+        "ix_claims_pack_type",
+        "CREATE INDEX ix_claims_pack_type ON claims (transfer_pack_id, claim_type)",
+    )
+    _ensure_index(
+        "claims",
+        "ix_claims_review_state",
+        "CREATE INDEX ix_claims_review_state ON claims (review_state)",
+    )
+    _ensure_index(
+        "claim_evidence",
+        "ix_claim_evidence_source_record",
+        "CREATE INDEX ix_claim_evidence_source_record ON claim_evidence (source_record_id)",
+    )
+    _ensure_index(
+        "source_records",
+        "ix_source_records_source_created",
+        "CREATE INDEX ix_source_records_source_created ON source_records (connected_source_id, external_created_at)",
+    )
+    _ensure_index(
+        "knowledge_chunks",
+        "ix_knowledge_chunks_lookup",
+        "CREATE INDEX ix_knowledge_chunks_lookup ON knowledge_chunks (case_id, context_mode, sensitivity)",
+    )

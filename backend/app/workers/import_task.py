@@ -149,6 +149,14 @@ def run_import(job_id: str) -> None:
         filtered_pr_issues = 0
 
         try:
+            # Pre-load existing source records in memory to eliminate N+1 roundtrips
+            records_cache = {
+                (r.record_type, str(r.external_id)): r
+                for r in db.query(SourceRecord)
+                .filter(SourceRecord.connected_source_id == source.id)
+                .all()
+            }
+
             # ── Fetch Issues (excluding PRs so PRs get canonical data via /pulls) ──
             update_job_progress(db, job.id, current=1, total=4, message=f"Fetching issues from {owner}/{repo}…")
             db.commit()
@@ -160,7 +168,7 @@ def run_import(job_id: str) -> None:
 
             for idx, issue_data in enumerate(pure_issues):
                 mapped = map_issue(issue_data, force_pr=False)
-                record, change = _upsert_record(db, source.id, mapped)
+                record, change = _upsert_record(db, source.id, mapped, records_cache=records_cache, flush_now=False)
                 if change == "created":
                     records_created += 1
                 elif change == "updated":
@@ -178,6 +186,8 @@ def run_import(job_id: str) -> None:
                     except GitHubAPIError as c_err:
                         logger.warning("Skipping comments for issue #%s: %s", issue_data.get("number"), c_err)
 
+            db.flush()
+
             # ── Fetch PRs (reviews + review comments) ─────────
             update_job_progress(db, job.id, current=2, total=4, message=f"Fetching pull requests from {owner}/{repo}…")
             db.commit()
@@ -186,7 +196,7 @@ def run_import(job_id: str) -> None:
             records_fetched += len(pulls)
 
             for idx, pr_data in enumerate(pulls):
-                pr_record, change = _upsert_record(db, source.id, map_issue(pr_data, force_pr=True))
+                pr_record, change = _upsert_record(db, source.id, map_issue(pr_data, force_pr=True), records_cache=records_cache, flush_now=False)
                 if change == "created":
                     records_created += 1
                 elif change == "updated":
@@ -210,6 +220,8 @@ def run_import(job_id: str) -> None:
                     except GitHubAPIError as pr_err:
                         logger.warning("Skipping reviews/comments for PR #%s: %s", pr_data.get("number"), pr_err)
 
+            db.flush()
+
             # ── Fetch Commits ─────────────────────────────────
             update_job_progress(db, job.id, current=3, total=4, message=f"Fetching commits from {owner}/{repo}…")
             db.commit()
@@ -219,13 +231,15 @@ def run_import(job_id: str) -> None:
 
             for commit_data in commits:
                 mapped = map_commit(commit_data)
-                record, change = _upsert_record(db, source.id, mapped)
+                record, change = _upsert_record(db, source.id, mapped, records_cache=records_cache, flush_now=False)
                 if change == "created":
                     records_created += 1
                 elif change == "updated":
                     records_updated += 1
                 else:
                     records_unchanged += 1
+
+            db.flush()
 
             # ── Index High-Signal Repository Tree Files ──
             update_job_progress(db, job.id, current=4, total=4, message=f"Indexing repository files from {owner}/{repo}…")
@@ -320,17 +334,27 @@ def run_import(job_id: str) -> None:
         db.close()
 
 
-def _upsert_record(db, source_id: uuid.UUID, data: dict) -> tuple[SourceRecord | None, str]:
+def _upsert_record(
+    db,
+    source_id: uuid.UUID,
+    data: dict,
+    records_cache: dict[tuple[Any, str], SourceRecord] | None = None,
+    flush_now: bool = True,
+) -> tuple[SourceRecord | None, str]:
     """Insert or update a source record (idempotent by external_id)."""
-    existing = (
-        db.query(SourceRecord)
-        .filter(
-            SourceRecord.connected_source_id == source_id,
-            SourceRecord.record_type == data["record_type"],
-            SourceRecord.external_id == data["external_id"],
+    cache_key = (data["record_type"], str(data["external_id"]))
+    if records_cache is not None:
+        existing = records_cache.get(cache_key)
+    else:
+        existing = (
+            db.query(SourceRecord)
+            .filter(
+                SourceRecord.connected_source_id == source_id,
+                SourceRecord.record_type == data["record_type"],
+                SourceRecord.external_id == str(data["external_id"]),
+            )
+            .first()
         )
-        .first()
-    )
     if existing:
         changed = False
         for field in ("title", "body", "state", "url", "author_name", "author_external_id"):
@@ -345,13 +369,17 @@ def _upsert_record(db, source_id: uuid.UUID, data: dict) -> tuple[SourceRecord |
             existing.metadata_json = data.get("metadata_json")
             changed = True
         if changed:
-            db.flush()
+            if flush_now:
+                db.flush()
             return existing, "updated"
         return existing, "unchanged"
 
     record = SourceRecord(connected_source_id=source_id, **data)
     db.add(record)
-    db.flush()
+    if records_cache is not None:
+        records_cache[cache_key] = record
+    if flush_now:
+        db.flush()
     return record, "created"
 
 
@@ -435,8 +463,15 @@ def _run_connector_import(*, db, job, source: ConnectedSource, sync_run: SyncRun
         )
         db.commit()
 
+        records_cache = {
+            (r.record_type, str(r.external_id)): r
+            for r in db.query(SourceRecord)
+            .filter(SourceRecord.connected_source_id == source.id)
+            .all()
+        }
+
         for rec_dict in fetched.records:
-            rec_obj, change = _upsert_record(db, source.id, rec_dict)
+            rec_obj, change = _upsert_record(db, source.id, rec_dict, records_cache=records_cache, flush_now=False)
             if change == "created":
                 records_created += 1
             elif change == "updated":
@@ -453,6 +488,8 @@ def _run_connector_import(*, db, job, source: ConnectedSource, sync_run: SyncRun
                 )
                 for ev in fetched.events_by_key.get(key, []):
                     _upsert_event(db, rec_obj.id, ev)
+
+        db.flush()
 
         if fetched.next_cursor:
             cfg["sync_cursor"] = fetched.next_cursor

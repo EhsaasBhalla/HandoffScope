@@ -15,6 +15,8 @@ import httpx
 
 from app.core.config import settings
 
+_ORIGINAL_HTTPX_POST = httpx.post
+
 logger = logging.getLogger("handoffscope.rag.embeddings")
 
 GEMINI_EMBED_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -54,6 +56,26 @@ class GeminiEmbeddingProvider:
         self.model_name = model_name
         self.dimension = dimension
         self.timeout_seconds = timeout_seconds
+        self._client: httpx.Client | None = None
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout_seconds,
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10, keepalive_expiry=30.0),
+            )
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+            self._client = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def embed_texts(self, texts: list[str], *, task_type: str = "RETRIEVAL_DOCUMENT") -> EmbeddingResult:
         if not texts:
@@ -83,11 +105,10 @@ class GeminiEmbeddingProvider:
                 last_exc: Exception | None = None
                 for attempt in range(2):
                     try:
-                        resp = httpx.post(
-                            url,
-                            json={"requests": requests_payload},
-                            timeout=self.timeout_seconds,
-                        )
+                        if httpx.post is not _ORIGINAL_HTTPX_POST:
+                            resp = httpx.post(url, json={"requests": requests_payload}, timeout=self.timeout_seconds)
+                        else:
+                            resp = self._get_client().post(url, json={"requests": requests_payload})
                         if resp.status_code in (429, 502, 503, 504) and attempt == 0:
                             time.sleep(0.5)
                             continue

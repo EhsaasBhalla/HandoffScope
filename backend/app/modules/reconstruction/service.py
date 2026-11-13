@@ -130,48 +130,53 @@ def run_extraction(
             db.add(doc_source)
             db.flush()
 
+        uploader_ids = [doc.uploaded_by_id for doc in completed_docs if doc.uploaded_by_id]
+        uploaders = (
+            {u.id: u.display_name for u in db.query(User).filter(User.id.in_(uploader_ids)).all()}
+            if uploader_ids
+            else {}
+        )
+        existing_sr_map = {
+            sr.external_id: sr
+            for sr in db.query(SourceRecord)
+            .filter(
+                SourceRecord.connected_source_id == doc_source.id,
+                SourceRecord.record_type == SourceRecordType.DOCUMENT_SECTION,
+            )
+            .all()
+        }
+
         for doc in completed_docs:
             if not doc.extracted_text:
                 continue
-            existing_sr = (
-                db.query(SourceRecord)
-                .filter(
-                    SourceRecord.connected_source_id == doc_source.id,
-                    SourceRecord.record_type == SourceRecordType.DOCUMENT_SECTION,
-                    SourceRecord.external_id == str(doc.id),
-                )
-                .first()
-            )
+            existing_sr = existing_sr_map.get(str(doc.id))
             doc_meta = doc.extraction_metadata if isinstance(doc.extraction_metadata, dict) else {}
             sections = doc_meta.get("sections") or build_document_section_chunks(None, doc.extracted_text)
-            uploader_name = None
-            if doc.uploaded_by_id:
-                uploader = db.query(User).filter(User.id == doc.uploaded_by_id).first()
-                uploader_name = uploader.display_name if uploader else None
+            uploader_name = uploaders.get(doc.uploaded_by_id)
 
             if not existing_sr:
-                db.add(
-                    SourceRecord(
-                        connected_source_id=doc_source.id,
-                        source_type=SourceType.DOCUMENT_UPLOAD.value,
-                        record_type=SourceRecordType.DOCUMENT_SECTION,
-                        external_id=str(doc.id),
-                        title=doc.original_filename,
-                        body=doc.extracted_text,
-                        author_name=uploader_name,
-                        sensitivity=doc.sensitivity,
-                        processing_status=ProcessingStatus.COMPLETED,
-                        external_created_at=doc.created_at,
-                        external_updated_at=doc.updated_at or doc.created_at,
-                        metadata_json={
-                            "document_id": str(doc.id),
-                            "mime_type": doc.mime_type,
-                            "page_count": doc.page_count,
-                            "section_count": len(sections),
-                            "sections": sections,
-                        },
-                    )
+                new_sr = SourceRecord(
+                    connected_source_id=doc_source.id,
+                    source_type=SourceType.DOCUMENT_UPLOAD.value,
+                    record_type=SourceRecordType.DOCUMENT_SECTION,
+                    external_id=str(doc.id),
+                    title=doc.original_filename,
+                    body=doc.extracted_text,
+                    author_name=uploader_name,
+                    sensitivity=doc.sensitivity,
+                    processing_status=ProcessingStatus.COMPLETED,
+                    external_created_at=doc.created_at,
+                    external_updated_at=doc.updated_at or doc.created_at,
+                    metadata_json={
+                        "document_id": str(doc.id),
+                        "mime_type": doc.mime_type,
+                        "page_count": doc.page_count,
+                        "section_count": len(sections),
+                        "sections": sections,
+                    },
                 )
+                db.add(new_sr)
+                existing_sr_map[str(doc.id)] = new_sr
             elif not existing_sr.metadata_json or "sections" not in (existing_sr.metadata_json or {}):
                 updated_meta = dict(existing_sr.metadata_json or {})
                 updated_meta.update({
@@ -371,6 +376,14 @@ def run_extraction(
             )
         )
 
+    # Bulk query existing question texts for case once to prevent N+1 queries
+    existing_q_texts = {
+        row[0]
+        for row in db.query(Question.question_text)
+        .filter(Question.case_id == case_id)
+        .all()
+    }
+
     for sort_idx, ctp in enumerate(packs_to_persist):
         pack = (
             db.query(TransferPack)
@@ -391,20 +404,18 @@ def run_extraction(
             db.flush()
             packs_created += 1
 
+        # Bulk query existing claims in this pack once to eliminate N+1 roundtrips
+        existing_claims_map = {
+            (c.title, c.claim_type): c
+            for c in db.query(Claim).filter(Claim.transfer_pack_id == pack.id).all()
+        }
+
         # Helper to persist a list of items as claims
         def _save_claims(items: list[Any], claim_type: ClaimType):
             nonlocal claims_created, evidence_linked
             for it in items:
-                # Check for existing duplicate title in pack
-                existing = (
-                    db.query(Claim)
-                    .filter(
-                        Claim.transfer_pack_id == pack.id,
-                        Claim.title == it.title,
-                        Claim.claim_type == claim_type,
-                    )
-                    .first()
-                )
+                # Check for existing duplicate title in pack via in-memory index
+                existing = existing_claims_map.get((it.title, claim_type))
                 if existing:
                     # Refresh staleness marker on regeneration
                     if existing.freshness in (Freshness.POTENTIALLY_STALE, Freshness.CHANGED_SINCE_APPROVAL):
@@ -428,7 +439,7 @@ def run_extraction(
                     extraction_run_id=str(run_id),
                 )
                 db.add(claim)
-                db.flush()
+                existing_claims_map[(claim.title, claim.claim_type)] = claim
                 claims_created += 1
 
                 # Link evidence (strictly discard hallucinated citations not present in DB)
@@ -461,17 +472,12 @@ def run_extraction(
         _save_claims(ctp.knowledge_gaps, ClaimType.KNOWLEDGE_GAP)
         _save_claims(ctp.next_actions, ClaimType.NEXT_ACTION)
 
-        # Queue question suggestions
+        # Flush once per pack instead of after every claim
+        db.flush()
+
+        # Queue question suggestions using in-memory set
         for q_sug in ctp.question_suggestions:
-            q_exists = (
-                db.query(Question)
-                .filter(
-                    Question.case_id == case_id,
-                    Question.question_text == q_sug.question_text,
-                )
-                .first()
-            )
-            if not q_exists:
+            if q_sug.question_text not in existing_q_texts:
                 raw_prio = getattr(q_sug, "priority", "MEDIUM")
                 prio = Priority(raw_prio) if raw_prio in Priority.__members__ else Priority.MEDIUM
                 new_q = Question(
@@ -485,6 +491,9 @@ def run_extraction(
                     created_by_id=actor_id or case.created_by_id,
                 )
                 db.add(new_q)
+                existing_q_texts.add(q_sug.question_text)
+
+        db.flush()
 
     # 9. Update case status & sync status cleanly
     if previous_status in (CaseStatus.DRAFT, CaseStatus.CONNECTING, CaseStatus.INGESTING, CaseStatus.RECONSTRUCTING, CaseStatus.NEEDS_INPUT):

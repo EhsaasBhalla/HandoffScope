@@ -13,6 +13,8 @@ from typing import Any, Type
 import httpx
 from pydantic import BaseModel
 
+_ORIGINAL_HTTPX_POST = httpx.post
+
 from app.core.config import settings
 from app.integrations.llm.base import LLMProvider
 from app.integrations.llm.mock_provider import MockLLMProvider
@@ -45,6 +47,27 @@ class GeminiProvider(LLMProvider):
         self.model_name = model_name
         self.timeout_seconds = timeout_seconds or settings.LLM_REQUEST_TIMEOUT_SECONDS
         self.max_retries = settings.LLM_MAX_RETRIES if max_retries is None else max_retries
+        self._client: httpx.Client | None = None
+
+    def _get_client(self) -> httpx.Client:
+        """Reuse keep-alive connection pool to eliminate TCP/TLS handshake latency on repeated API calls."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout_seconds,
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=30.0),
+            )
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+            self._client = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def get_model_name(self) -> str:
         return self.model_name
@@ -267,7 +290,10 @@ class GeminiProvider(LLMProvider):
                 finish_reason = None
                 usage: dict[str, Any] = {}
                 try:
-                    response = httpx.post(url, headers=headers, json=payload, timeout=self.timeout_seconds)
+                    if httpx.post is not _ORIGINAL_HTTPX_POST:
+                        response = httpx.post(url, headers=headers, json=payload, timeout=self.timeout_seconds)
+                    else:
+                        response = self._get_client().post(url, headers=headers, json=payload)
                     if response.status_code == 200:
                         data = response.json()
                         usage = data.get("usageMetadata", {}) or {}

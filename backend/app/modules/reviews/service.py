@@ -58,6 +58,14 @@ def compute_snapshot_hash(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _sort_dt(dt: datetime | None) -> float:
+    if dt is None:
+        return 0.0
+    if dt.tzinfo is not None:
+        return dt.timestamp()
+    return dt.replace(tzinfo=timezone.utc).timestamp()
+
+
 def build_canonical_snapshot_dict(
     db: Session,
     *,
@@ -74,6 +82,9 @@ def build_canonical_snapshot_dict(
     packs = (
         db.query(TransferPack)
         .filter(TransferPack.case_id == case.id)
+        .options(
+            joinedload(TransferPack.claims).joinedload(Claim.evidence_items)
+        )
         .order_by(TransferPack.sort_order.asc(), TransferPack.created_at.asc())
         .all()
     )
@@ -84,21 +95,17 @@ def build_canonical_snapshot_dict(
     total_claims = 0
 
     for p in packs:
-        claims = (
-            db.query(Claim)
-            .filter(Claim.transfer_pack_id == p.id)
-            .order_by(Claim.created_at.asc())
-            .all()
+        claims = sorted(
+            p.claims or [],
+            key=lambda item: _sort_dt(item.created_at),
         )
         total_claims += len(claims)
 
         claim_payloads: list[dict[str, Any]] = []
         for c in claims:
-            evidence_records = (
-                db.query(ClaimEvidence)
-                .filter(ClaimEvidence.claim_id == c.id)
-                .order_by(ClaimEvidence.created_at.asc())
-                .all()
+            evidence_records = sorted(
+                c.evidence_items or [],
+                key=lambda item: _sort_dt(item.created_at),
             )
             evidence_payloads = [
                 {
@@ -240,13 +247,18 @@ def get_review_queue_summary(
     pack_ids = [p.id for p in packs]
     claims = db.query(Claim).filter(Claim.transfer_pack_id.in_(pack_ids)).all() if pack_ids else []
     restricted_claim_ids = {
-        ce.claim_id
-        for ce in (
+        row[0]
+        for row in (
             db.query(ClaimEvidence.claim_id)
-            .filter(ClaimEvidence.claim_id.in_([c.id for c in claims]), ClaimEvidence.is_restricted.is_(True))
+            .join(Claim, ClaimEvidence.claim_id == Claim.id)
+            .filter(
+                Claim.transfer_pack_id.in_(pack_ids),
+                ClaimEvidence.is_restricted.is_(True),
+            )
+            .distinct()
             .all()
         )
-    } if claims else set()
+    } if pack_ids else set()
 
     pending_count = sum(1 for c in claims if c.review_state == ReviewState.PENDING_REVIEW)
     accepted_count = sum(1 for c in claims if c.review_state == ReviewState.ACCEPTED)
