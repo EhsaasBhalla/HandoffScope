@@ -18,11 +18,22 @@ import {
   ChevronUp,
   CheckSquare,
   Sparkles,
+  Download,
+  FileArchive,
+  MessageSquare,
+  UserPlus,
+  RotateCcw,
+  Radio,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { useCaseLiveUpdates } from '../../hooks/useCaseLiveUpdates';
 import { recipientApi } from '../../api/recipient.api';
+import { exportApi } from '../../api/export.api';
+import { HandoverChatDrawer } from '../../components/handover-chat-drawer/handover-chat-drawer';
 import styles from './successor-view.module.css';
 
 export default function SuccessorViewPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -30,9 +41,18 @@ export default function SuccessorViewPage() {
   const [completedActions, setCompletedActions] = useState({});
   const [expandedPacks, setExpandedPacks] = useState({});
 
-  // Decline Modal state
+  // Decline Modal, Claim Delegation Modal & Export state
   const [decliningAssignmentId, setDecliningAssignmentId] = useState(null);
   const [declineReason, setDeclineReason] = useState('');
+  const [delegatingClaim, setDelegatingClaim] = useState(null);
+  const [delegateUserId, setDelegateUserId] = useState('');
+  const [delegateNote, setDelegateNote] = useState('');
+  const [delegateError, setDelegateError] = useState('');
+  const [exportBusy, setExportBusy] = useState('');
+  const [exportError, setExportError] = useState('');
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const { mode: liveMode } = useCaseLiveUpdates(selectedCaseId);
 
   // 1. Fetch cases shared with this user as successor
   const { data: myCases, isLoading: casesLoading } = useQuery({
@@ -112,6 +132,44 @@ export default function SuccessorViewPage() {
     },
   });
 
+  // Delegate Claim Mutation
+  const delegateMutation = useMutation({
+    mutationFn: ({ claimId, assignedUserId, note }) =>
+      recipientApi.delegateClaim(claimId, {
+        assigned_user_id: assignedUserId,
+        note: note || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setDelegatingClaim(null);
+      setDelegateUserId('');
+      setDelegateNote('');
+      setDelegateError('');
+    },
+    onError: (err) => {
+      setDelegateError(err.data?.detail || err.message || 'Failed to delegate claim.');
+    },
+  });
+
+  // Revoke Claim Delegation Mutation
+  const revokeDelegationMutation = useMutation({
+    mutationFn: (assignmentId) => recipientApi.revokeDelegation(assignmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to revoke claim delegation');
+    },
+  });
+
   const toggleActionDone = (id) => {
     setCompletedActions((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -160,29 +218,135 @@ export default function SuccessorViewPage() {
                     fontWeight: 600,
                     padding: '3px 8px',
                     borderRadius: '999px',
-                    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-                    color: '#fbbf24',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    backgroundColor: 'var(--color-warning-bg)',
+                    color: 'var(--color-warning)',
+                    border: '1px solid var(--color-warning)',
                   }}
                 >
                   Draft Preview — Not Approved
                 </span>
               ) : (
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    padding: '3px 8px',
-                    borderRadius: '999px',
-                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                    color: '#34d399',
-                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                  }}
-                >
-                  {v.is_snapshot_backed ? 'Immutable Frozen Snapshot' : 'Approved Snapshot'} v{v.current_version_number || 1}
-                  {v.approved_at ? ` • Approved ${new Date(v.approved_at).toLocaleString()}` : ''}
-                </span>
+                <>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      backgroundColor: 'var(--color-success-bg)',
+                      color: 'var(--color-success)',
+                      border: '1px solid var(--color-success)',
+                    }}
+                  >
+                    {v.is_snapshot_backed ? 'Immutable Frozen Snapshot' : 'Approved Snapshot'} v{v.current_version_number || 1}
+                    {v.approved_at ? ` • Approved ${new Date(v.approved_at).toLocaleString()}` : ''}
+                  </span>
+                  {v.current_version_number >= 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={exportBusy === 'pdf'}
+                        onClick={async () => {
+                          setExportError('');
+                          setExportBusy('pdf');
+                          try {
+                            await exportApi.downloadCertificatePdf(selectedCaseId, v.current_version_number);
+                          } catch (err) {
+                            setExportError(err.message || 'PDF download failed.');
+                          } finally {
+                            setExportBusy('');
+                          }
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          padding: '3px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--color-border)',
+                          backgroundColor: 'var(--color-bg-secondary)',
+                          color: 'var(--color-text-primary)',
+                        }}
+                      >
+                        <Download size={12} />
+                        {exportBusy === 'pdf' ? 'Generating PDF…' : 'Certificate PDF'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={exportBusy === 'zip'}
+                        onClick={async () => {
+                          setExportError('');
+                          setExportBusy('zip');
+                          try {
+                            await exportApi.downloadComplianceBundle(selectedCaseId, v.current_version_number);
+                          } catch (err) {
+                            setExportError(err.message || 'Archive download failed.');
+                          } finally {
+                            setExportBusy('');
+                          }
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          padding: '3px 9px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          backgroundColor: 'var(--color-accent)',
+                          color: 'var(--color-text-inverse)',
+                        }}
+                      >
+                        <FileArchive size={12} />
+                        {exportBusy === 'zip' ? 'Packaging ZIP…' : 'Compliance Archive (.zip)'}
+                      </button>
+                    </>
+                  )}
+                  <span
+                    title={liveMode === 'live' ? 'Real-time SSE stream connected' : 'Periodic sync fallback active'}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      border: '1px solid var(--color-border)',
+                      color: liveMode === 'live' ? 'var(--color-success)' : 'var(--color-text-muted)',
+                      backgroundColor: liveMode === 'live' ? 'var(--color-success-bg)' : 'var(--color-bg-secondary)',
+                    }}
+                  >
+                    <Radio size={11} />
+                    {liveMode === 'live' ? 'Live' : 'Sync'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(true)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '3px 9px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--color-border-accent)',
+                      backgroundColor: 'var(--color-accent-subtle)',
+                      color: 'var(--color-accent-text)',
+                    }}
+                  >
+                    <MessageSquare size={12} /> Ask Handover Assistant
+                  </button>
+                </>
               )}
+            </div>
+          )}
+          {exportError && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--color-error)' }}>
+              {exportError}
             </div>
           )}
         </div>
@@ -260,9 +424,9 @@ export default function SuccessorViewPage() {
             <div className={styles.statCard}>
               <div className={styles.statHeader}>
                 <span>Accepted Ownership</span>
-                <CheckCircle2 size={16} style={{ color: '#34d399' }} />
+                <CheckCircle2 size={16} style={{ color: 'var(--color-success)' }} />
               </div>
-              <span className={styles.statValue} style={{ color: '#34d399' }}>
+              <span className={styles.statValue} style={{ color: 'var(--color-success)' }}>
                 {v.stats.accepted_packs}
               </span>
             </div>
@@ -280,11 +444,11 @@ export default function SuccessorViewPage() {
             <div className={styles.statCard}>
               <div className={styles.statHeader}>
                 <span>Access Blockers</span>
-                <ShieldAlert size={16} style={{ color: v.stats.access_blockers_count > 0 ? '#f87171' : 'var(--color-text-muted)' }} />
+                <ShieldAlert size={16} style={{ color: v.stats.access_blockers_count > 0 ? 'var(--color-error)' : 'var(--color-text-muted)' }} />
               </div>
               <span
                 className={styles.statValue}
-                style={{ color: v.stats.access_blockers_count > 0 ? '#f87171' : 'var(--color-text-primary)' }}
+                style={{ color: v.stats.access_blockers_count > 0 ? 'var(--color-error)' : 'var(--color-text-primary)' }}
               >
                 {v.stats.access_blockers_count}
               </span>
@@ -388,25 +552,64 @@ export default function SuccessorViewPage() {
 
                       {isExpanded && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', marginTop: 'var(--space-sm)' }}>
-                          {pack.claims.map((c) => (
-                            <div
-                              key={c.id}
-                              style={{
-                                padding: 'var(--space-sm)',
-                                backgroundColor: 'var(--color-bg-primary)',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-border-subtle)',
-                                fontSize: 'var(--text-xs)',
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '2px' }}>
-                                [{c.claim_type}] {c.title}
+                          {pack.claims.map((c) => {
+                            const activeDelegation = (v.claim_assignments || []).find((ca) => ca.claim_id === c.id);
+                            const eligibleTargets = (v.eligible_delegates || []).filter((m) => m.user_id !== user?.id);
+                            const canDelegateClaim =
+                              Boolean(assignment && assignment.assigned_user_id === user?.id) &&
+                              !activeDelegation &&
+                              eligibleTargets.length > 0;
+                            return (
+                              <div
+                                key={c.id}
+                                style={{
+                                  padding: 'var(--space-sm)',
+                                  backgroundColor: 'var(--color-bg-primary)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                  fontSize: 'var(--text-xs)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                  <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                                    [{c.claim_type}] {c.title}
+                                  </div>
+                                  {activeDelegation ? (
+                                    <span style={{ fontSize: '11px', color: 'var(--color-accent-text)', fontWeight: 600 }}>
+                                      Delegated → {activeDelegation.assignee_name} ({activeDelegation.status.replace('_', ' ')})
+                                    </span>
+                                  ) : canDelegateClaim ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDelegatingClaim({ claim: c, packName: pack.name });
+                                        setDelegateUserId(eligibleTargets[0]?.user_id || '');
+                                        setDelegateNote('');
+                                        setDelegateError('');
+                                      }}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '11px',
+                                        padding: '2px 8px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        border: '1px solid var(--color-border)',
+                                        backgroundColor: 'var(--color-bg-secondary)',
+                                        color: 'var(--color-text-primary)',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      <UserPlus size={11} /> Delegate
+                                    </button>
+                                  ) : null}
+                                </div>
+                                <div style={{ color: c.is_restricted_withheld ? 'var(--color-error)' : 'var(--color-text-secondary)' }}>
+                                  {c.body_text}
+                                </div>
                               </div>
-                              <div style={{ color: c.is_restricted_withheld ? '#f87171' : 'var(--color-text-secondary)' }}>
-                                {c.body_text}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -415,6 +618,82 @@ export default function SuccessorViewPage() {
               })}
             </div>
           </div>
+
+          {(v.claim_assignments || []).length > 0 && (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <h3 className={styles.sectionTitle}>
+                  <UserPlus size={20} style={{ color: 'var(--color-accent)' }} />
+                  Delegated Claim Responsibilities ({v.claim_assignments.length})
+                </h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                {v.claim_assignments.map((ca) => {
+                  const isAssignee = ca.assigned_user_id === user?.id;
+                  const canRevoke = ca.delegated_from_user_id === user?.id || ca.assigned_by === user?.id;
+                  return (
+                    <div key={ca.id} className={styles.packCard}>
+                      <div className={styles.packTop}>
+                        <div className={styles.packInfo}>
+                          <h4>{ca.claim_title || 'Delegated Claim'}</h4>
+                          <div className={styles.packMeta}>
+                            <span>Pack: {ca.transfer_pack_name}</span>
+                            <span>•</span>
+                            <span>From {ca.delegated_from_name || 'Owner'} → {ca.assignee_name}</span>
+                          </div>
+                          {ca.delegation_note && (
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                              Note: {ca.delegation_note}
+                            </div>
+                          )}
+                        </div>
+                        <div className={styles.actionsRow}>
+                          {ca.status === 'ACCEPTED' ? (
+                            <span className={styles.statusPillAccepted}>Accepted</span>
+                          ) : ca.status === 'DECLINED' ? (
+                            <span className={styles.statusPillDeclined}>Declined</span>
+                          ) : isAssignee ? (
+                            <>
+                              <button
+                                className={styles.btnAccept}
+                                onClick={() => acceptMutation.mutate(ca.id)}
+                                disabled={acceptMutation.isPending}
+                              >
+                                <CheckCircle2 size={14} /> Accept
+                              </button>
+                              <button
+                                className={styles.btnDecline}
+                                onClick={() => setDecliningAssignmentId(ca.id)}
+                              >
+                                <XCircle size={14} /> Decline
+                              </button>
+                            </>
+                          ) : (
+                            <span className={styles.statusPillPending}>Pending Acceptance</span>
+                          )}
+                          {canRevoke && (
+                            <button
+                              type="button"
+                              className={styles.btnDecline}
+                              onClick={() => revokeDelegationMutation.mutate(ca.id)}
+                              disabled={revokeDelegationMutation.isPending}
+                            >
+                              <RotateCcw size={13} /> Revoke
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {ca.decline_reason && (
+                        <div className={styles.declineReasonBox}>
+                          <strong>Decline Reason:</strong> {ca.decline_reason}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* 2. What Are My Next Actions? */}
           <div className={styles.section}>
@@ -496,13 +775,13 @@ export default function SuccessorViewPage() {
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h3 className={styles.sectionTitle}>
-                <Lock size={20} style={{ color: '#f87171' }} />
+                <Lock size={20} style={{ color: 'var(--color-error)' }} />
                 4. What Do I Not Have Access To? (Access Blockers)
               </h3>
             </div>
 
             {v.access_blockers.length === 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34d399', fontSize: 'var(--text-xs)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)', fontSize: 'var(--text-xs)' }}>
                 <CheckCircle2 size={16} /> All referenced sources and evidence are fully accessible with your clearance.
               </div>
             ) : (
@@ -518,7 +797,7 @@ export default function SuccessorViewPage() {
                         </div>
                       </div>
                     </div>
-                    <span style={{ fontSize: '11px', color: '#f87171', fontWeight: 600 }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-error)', fontWeight: 600 }}>
                       RESTRICTED
                     </span>
                   </div>
@@ -581,6 +860,97 @@ export default function SuccessorViewPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Claim Delegation Modal */}
+      {delegatingClaim && (
+        <div className={styles.modalOverlay} onClick={() => setDelegatingClaim(null)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', color: 'var(--color-text-primary)' }}>
+              Delegate Claim Responsibility
+            </h3>
+            <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+              Assign <strong>{delegatingClaim.claim.title}</strong> ({delegatingClaim.packName}) to an active project member. Restricted claims require matching member clearance.
+            </p>
+            <select
+              value={delegateUserId}
+              onChange={(e) => setDelegateUserId(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 'var(--space-sm)',
+                backgroundColor: 'var(--color-bg-primary)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              {(v?.eligible_delegates || [])
+                .filter((m) => m.user_id !== user?.id)
+                .map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.display_name} ({m.role})
+                  </option>
+                ))}
+            </select>
+            <textarea
+              rows={2}
+              placeholder="Optional delegation context or handoff note..."
+              value={delegateNote}
+              onChange={(e) => setDelegateNote(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 'var(--space-sm)',
+                backgroundColor: 'var(--color-bg-primary)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--text-sm)',
+                fontFamily: 'var(--font-sans)',
+              }}
+            />
+            {delegateError && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }}>
+                {delegateError}
+              </div>
+            )}
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className={styles.btnDecline}
+                style={{ backgroundColor: 'transparent', color: 'var(--color-text-secondary)', borderColor: 'var(--color-border)' }}
+                onClick={() => setDelegatingClaim(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.btnAccept}
+                disabled={!delegateUserId || delegateMutation.isPending}
+                onClick={() =>
+                  delegateMutation.mutate({
+                    claimId: delegatingClaim.claim.id,
+                    assignedUserId: delegateUserId,
+                    note: delegateNote.trim(),
+                  })
+                }
+              >
+                {delegateMutation.isPending ? 'Delegating…' : 'Confirm Delegation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedCaseId && (
+        <HandoverChatDrawer
+          isOpen={chatOpen}
+          onClose={() => setChatOpen(false)}
+          caseId={selectedCaseId}
+          hasApprovedVersion={Boolean(v && !v.is_draft_preview && v.current_version_number >= 1)}
+          approvedVersionNumber={v?.current_version_number || null}
+          isRecipientOnly={true}
+        />
       )}
     </div>
   );

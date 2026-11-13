@@ -340,11 +340,11 @@
 }
 
 .attentionHigh {
-  border-left: 4px solid #ef4444;
+  border-left: 4px solid var(--color-error);
 }
 
 .attentionMedium {
-  border-left: 4px solid #f59e0b;
+  border-left: 4px solid var(--color-warning);
 }
 
 .attentionTitle {

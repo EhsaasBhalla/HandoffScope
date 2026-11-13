@@ -8,12 +8,17 @@ import uuid
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.core.credentials import decrypt_secret
 from app.db.base import SessionLocal
 from app.db.enums import ConnectionStatus, JobStatus, ProcessingStatus, SourceType, SyncRunStatus
 from app.modules.ingestion.models import SourceEvent, SourceRecord
 from app.modules.jobs.service import complete_job, fail_job, update_job_progress
 from app.modules.projects.models import Project
 from app.modules.sources.models import ConnectedSource, GitHubInstallation, SyncRun
+from app.integrations.connectors.base import ConnectorError
+from app.integrations.connectors.gitlab_connector import GitLabConnector
+from app.integrations.connectors.jira_connector import JiraConnector
+from app.integrations.connectors.linear_connector import LinearConnector
 from app.integrations.github.client import GitHubAPIError, GitHubClient
 from app.integrations.github.mapper import (
     map_comment,
@@ -22,6 +27,7 @@ from app.integrations.github.mapper import (
     map_review,
     map_review_comment,
 )
+from app.integrations.github.tree_indexer import index_github_repo_tree
 
 logger = logging.getLogger("handoffscope.worker.import")
 
@@ -92,7 +98,12 @@ def run_import(job_id: str) -> None:
             logger.info("Synthetic fixture source %s refreshed: %d records", source.id, count)
             return
 
-        # Get repo info from source config, falling back to external_id/name (e.g. 'owner/repo')
+        # Handle multi-platform connectors (GitLab, Jira, Linear) through shared pipeline
+        if source.source_type in (SourceType.GITLAB_REPO, SourceType.JIRA_PROJECT, SourceType.LINEAR_TEAM):
+            _run_connector_import(db=db, job=job, source=source, sync_run=sync_run)
+            return
+
+        # Get GitHub repo info from source config, falling back to external_id/name (e.g. 'owner/repo')
         config = source.config or {}
         owner = (config.get("owner") or "").strip()
         repo = (config.get("repo") or "").strip()
@@ -106,7 +117,7 @@ def run_import(job_id: str) -> None:
                 repo = parts[1].strip()
 
         access_token = (
-            config.get("access_token")
+            decrypt_secret(config.get("access_token"))
             or settings.GITHUB_TOKEN
             or os.environ.get("GITHUB_TOKEN", "")
         )
@@ -119,7 +130,7 @@ def run_import(job_id: str) -> None:
                     .first()
                 )
                 if inst and inst.access_token:
-                    access_token = inst.access_token
+                    access_token = decrypt_secret(inst.access_token)
 
         if not owner or not repo:
             fail_job(db, job.id, error_message="Source config missing owner/repo")
@@ -216,6 +227,26 @@ def run_import(job_id: str) -> None:
                 else:
                     records_unchanged += 1
 
+            # ── Index High-Signal Repository Tree Files (R3) ──
+            update_job_progress(db, job.id, current=4, total=4, message=f"Indexing repository files from {owner}/{repo}…")
+            db.commit()
+            tree_stats: dict = {}
+            try:
+                tree_stats = index_github_repo_tree(
+                    db,
+                    client=client,
+                    source_id=source.id,
+                    owner=owner,
+                    repo=repo,
+                )
+                records_fetched += tree_stats.get("files_indexed", 0)
+                records_created += tree_stats.get("files_created", 0)
+                records_updated += tree_stats.get("files_updated", 0)
+                records_unchanged += tree_stats.get("files_unchanged", 0)
+            except GitHubAPIError as tree_err:
+                logger.warning("Repo tree indexing skipped/partial for %s/%s: %s", owner, repo, tree_err)
+                tree_stats = {"tree_error": str(tree_err)}
+
             # ── Complete ──────────────────────────────────────
             records_skipped = records_unchanged + filtered_pr_issues
             sync_run.status = SyncRunStatus.COMPLETED
@@ -233,6 +264,7 @@ def run_import(job_id: str) -> None:
                 "records_updated": records_updated,
                 "records_skipped": records_skipped,
                 "filtered_pr_issues": filtered_pr_issues,
+                "tree_index": tree_stats,
             })
             db.commit()
 
@@ -328,3 +360,125 @@ def _upsert_event(db, record_id: uuid.UUID, data: dict) -> SourceEvent | None:
     db.add(event)
     db.flush()
     return event
+
+
+def _build_connector_for_source(source: ConnectedSource):
+    cfg = source.config or {}
+    if source.source_type == SourceType.GITLAB_REPO:
+        return GitLabConnector(
+            project_path=cfg.get("project_path") or source.external_id or source.name,
+            base_url=cfg.get("base_url") or "https://gitlab.com",
+            access_token=decrypt_secret(cfg.get("private_token") or cfg.get("access_token")),
+        )
+    if source.source_type == SourceType.LINEAR_TEAM:
+        return LinearConnector(
+            team_key=cfg.get("team_key") or source.external_id or "",
+            api_key=decrypt_secret(cfg.get("access_token") or cfg.get("api_token")),
+        )
+    if source.source_type == SourceType.JIRA_PROJECT:
+        return JiraConnector(
+            site_url=cfg.get("site_url") or "",
+            project_key=cfg.get("project_key") or source.external_id or "",
+            email=cfg.get("email") or "",
+            api_token=decrypt_secret(cfg.get("api_token")),
+        )
+    raise ValueError(f"Unsupported connector source type: {source.source_type}")
+
+
+def _run_connector_import(*, db, job, source: ConnectedSource, sync_run: SyncRun) -> None:
+    """Execute normalized incremental import for GitLab, Jira, or Linear sources."""
+    cfg = dict(source.config or {})
+    cursor = cfg.get("sync_cursor")
+    records_created = 0
+    records_updated = 0
+    records_unchanged = 0
+    connector = None
+
+    try:
+        connector = _build_connector_for_source(source)
+        update_job_progress(
+            db,
+            job.id,
+            current=1,
+            total=2,
+            message=f"Syncing {connector.platform_name} source {source.name}…",
+        )
+        db.commit()
+
+        fetched = connector.fetch_records(cursor=cursor)
+        update_job_progress(
+            db,
+            job.id,
+            current=2,
+            total=2,
+            message=f"Normalizing {len(fetched.records)} {connector.platform_name} records…",
+        )
+        db.commit()
+
+        for rec_dict in fetched.records:
+            rec_obj, change = _upsert_record(db, source.id, rec_dict)
+            if change == "created":
+                records_created += 1
+            elif change == "updated":
+                records_updated += 1
+            else:
+                records_unchanged += 1
+
+            if rec_obj:
+                key = (
+                    rec_dict["record_type"].value
+                    if hasattr(rec_dict["record_type"], "value")
+                    else str(rec_dict["record_type"]),
+                    rec_dict["external_id"],
+                )
+                for ev in fetched.events_by_key.get(key, []):
+                    _upsert_event(db, rec_obj.id, ev)
+
+        if fetched.next_cursor:
+            cfg["sync_cursor"] = fetched.next_cursor
+            source.config = cfg
+
+        partial = bool(fetched.partial_errors)
+        sync_run.status = SyncRunStatus.PARTIAL if partial else SyncRunStatus.COMPLETED
+        sync_run.completed_at = datetime.now(timezone.utc)
+        sync_run.records_fetched = len(fetched.records)
+        sync_run.records_created = records_created
+        sync_run.records_updated = records_updated
+        if partial:
+            sync_run.error_message = "; ".join(fetched.partial_errors)[:1000]
+        source.connection_status = ConnectionStatus.ACTIVE
+        source.updated_at = datetime.now(timezone.utc)
+
+        complete_job(
+            db,
+            job.id,
+            result={
+                "sync_run_id": str(sync_run.id),
+                "platform": connector.platform_name,
+                "records_fetched": len(fetched.records),
+                "records_created": records_created,
+                "records_updated": records_updated,
+                "records_skipped": records_unchanged,
+                "partial_errors": fetched.partial_errors,
+            },
+        )
+        db.commit()
+    except ConnectorError as exc:
+        logger.warning("Connector import error on source %s: %s", source.id, exc)
+        db.rollback()
+        sync_obj = db.query(SyncRun).filter(SyncRun.id == sync_run.id).first()
+        if sync_obj:
+            sync_obj.status = SyncRunStatus.FAILED
+            sync_obj.completed_at = datetime.now(timezone.utc)
+            sync_obj.error_message = str(exc)[:1000]
+        src_obj = db.query(ConnectedSource).filter(ConnectedSource.id == source.id).first()
+        if src_obj:
+            src_obj.connection_status = ConnectionStatus.ERROR
+        fail_job(db, job.id, error_message=str(exc)[:1000])
+        db.commit()
+    finally:
+        if connector and hasattr(connector, "close"):
+            try:
+                connector.close()
+            except Exception:
+                pass

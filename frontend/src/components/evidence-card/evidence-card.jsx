@@ -25,7 +25,7 @@ export function EvidenceCard({ evidence }) {
       case 'ISSUE':
         return <AlertCircle size={14} color="#10b981" />;
       case 'DOCUMENT':
-        return <FileText size={14} color="#f59e0b" />;
+        return <FileText size={14} color="var(--color-warning)" />;
       default:
         return <GitCommit size={14} />;
     }

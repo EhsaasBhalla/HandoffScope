@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.credentials import encrypt_source_config, sanitize_source_config_for_api
 from app.core.dependencies import get_current_active_user, get_db, get_user_context_capabilities, require_case_capability
 from app.db.enums import CaseParticipantRole, ConnectionStatus, JobStatus, JobType, Sensitivity, SourceType, SyncRunStatus
 from app.modules.jobs.models import Job
@@ -39,6 +40,7 @@ class SourceResponse(BaseModel):
     name: str
     external_id: str | None = None
     connection_status: str
+    config: dict | None = None
     created_at: str
     updated_at: str | None = None
     last_successful_sync_at: str | None = None
@@ -120,6 +122,7 @@ def list_sources(
                 name=s.name,
                 external_id=s.external_id,
                 connection_status=s.connection_status.value,
+                config=sanitize_source_config_for_api(s.config),
                 created_at=s.created_at.isoformat(),
                 updated_at=s.updated_at.isoformat() if s.updated_at else None,
                 last_successful_sync_at=last_ok_ts.isoformat() if last_ok_ts else None,
@@ -156,22 +159,61 @@ def connect_source(
         raise HTTPException(status_code=409, detail="Source already connected")
 
     config_data = dict(body.config) if body.config else {}
+    normalized_external_id = body.external_id
     if source_type == SourceType.GITHUB_REPO and (not config_data.get("owner") or not config_data.get("repo")):
-        slug = (body.external_id or body.name or "").strip().strip("/")
-        if slug.startswith("https://github.com/"):
-            slug = slug.replace("https://github.com/", "").rstrip(".git").strip("/")
-        if "/" in slug:
-            parts = slug.split("/")
-            config_data["owner"] = parts[0].strip()
-            config_data["repo"] = parts[1].strip()
+        from app.modules.sources.url_parser import parse_github_repo_identifier
+
+        raw_ref = body.external_id or body.name or ""
+        try:
+            parsed = parse_github_repo_identifier(raw_ref)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if parsed:
+            owner, repo, canonical_url = parsed
+            config_data["owner"] = owner
+            config_data["repo"] = repo
+            config_data.setdefault("url", canonical_url)
+            if not normalized_external_id or "github.com" in normalized_external_id.lower():
+                normalized_external_id = f"{owner}/{repo}"
+    elif source_type == SourceType.GITLAB_REPO:
+        proj_path = (config_data.get("project_path") or normalized_external_id or body.name or "").strip().strip("/")
+        if proj_path.startswith("https://gitlab.com/"):
+            proj_path = proj_path.replace("https://gitlab.com/", "").rstrip(".git").strip("/")
+        if "/" not in proj_path:
+            raise HTTPException(status_code=400, detail="GitLab source requires 'namespace/project' path")
+        config_data["project_path"] = proj_path
+        config_data.setdefault("base_url", "https://gitlab.com")
+        normalized_external_id = normalized_external_id or proj_path
+    elif source_type == SourceType.LINEAR_TEAM:
+        team_key = (config_data.get("team_key") or normalized_external_id or "").strip().upper()
+        token = (config_data.get("access_token") or config_data.get("api_token") or "").strip()
+        if not team_key or not token:
+            raise HTTPException(status_code=400, detail="Linear source requires team_key and API key / OAuth token")
+        config_data["team_key"] = team_key
+        normalized_external_id = normalized_external_id or team_key
+    elif source_type == SourceType.JIRA_PROJECT:
+        site_url = (config_data.get("site_url") or "").strip().rstrip("/")
+        proj_key = (config_data.get("project_key") or normalized_external_id or "").strip().upper()
+        email = (config_data.get("email") or "").strip()
+        api_token = (config_data.get("api_token") or "").strip()
+        if not site_url.startswith("https://") or not proj_key or not email or not api_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Jira source requires https:// site_url, project_key, email, and api_token",
+            )
+        config_data["site_url"] = site_url
+        config_data["project_key"] = proj_key
+        normalized_external_id = normalized_external_id or f"{site_url}/{proj_key}"
+
+    encrypted_config = encrypt_source_config(config_data)
 
     source = ConnectedSource(
         project_id=project_id,
         source_type=source_type,
         name=body.name,
-        external_id=body.external_id,
+        external_id=normalized_external_id,
         connection_status=ConnectionStatus.ACTIVE,
-        config=config_data or None,
+        config=encrypted_config,
         connected_by_id=user.id,
     )
     db.add(source)
@@ -183,7 +225,7 @@ def connect_source(
         action="source.connected",
         entity_type="connected_source",
         entity_id=source.id,
-        details={"source_type": body.source_type, "name": body.name},
+        details={"source_type": body.source_type, "name": body.name, "external_id": normalized_external_id},
         summary=f"Connected source: {body.name}",
     )
     db.commit()
@@ -196,6 +238,7 @@ def connect_source(
         name=source.name,
         external_id=source.external_id,
         connection_status=source.connection_status.value,
+        config=sanitize_source_config_for_api(source.config),
         created_at=source.created_at.isoformat(),
     )
 
@@ -325,7 +368,8 @@ def get_case_source_record(
     db: Session = Depends(get_db),
 ):
     """Retrieve a permitted source record belonging to a case for citation drilldown."""
-    from app.modules.handover_cases.models import CaseParticipant, CaseSource, HandoverCase
+    from app.modules.evidence.clearance import has_restricted_clearance, resolve_case_source_ids
+    from app.modules.handover_cases.models import HandoverCase
     from app.modules.ingestion.models import SourceRecord
 
     require_case_capability(db, user, case_id, "case.view")
@@ -338,31 +382,21 @@ def get_case_source_record(
         raise HTTPException(status_code=404, detail="Source record not found")
 
     # Verify record belongs strictly to this case's connected sources / project
-    case_sources = db.query(CaseSource).filter(CaseSource.case_id == case_id).all()
-    if case_sources:
-        allowed_src_ids = {cs.connected_source_id for cs in case_sources}
-    else:
-        allowed_src_ids = {
-            s.id for s in db.query(ConnectedSource).filter(ConnectedSource.project_id == case_obj.project_id).all()
-        }
+    allowed_src_ids = set(
+        resolve_case_source_ids(db, case_id=case_id, project_id=case_obj.project_id)
+    )
     if record.connected_source_id not in allowed_src_ids:
         raise HTTPException(status_code=404, detail="Source record does not belong to this case")
 
     # Enforce RESTRICTED sensitivity guard without leaking title/body/url
     if record.sensitivity == Sensitivity.RESTRICTED:
-        _, ws_roles, proj_roles = get_user_context_capabilities(db, user, case_id=case_id)
-        is_recipient = (
-            db.query(CaseParticipant)
-            .filter(
-                CaseParticipant.case_id == case_id,
-                CaseParticipant.user_id == user.id,
-                CaseParticipant.role == CaseParticipantRole.RECIPIENT,
-            )
-            .first()
-            is not None
-        )
-        is_lead = ("OWNER" in ws_roles or proj_roles.get(str(case_obj.project_id)) == "LEAD") and not is_recipient
-        if not is_lead:
+        if not has_restricted_clearance(
+            db,
+            user_id=user.id,
+            project_id=case_obj.project_id,
+            case_id=case_id,
+            user=user,
+        ):
             raise HTTPException(status_code=403, detail="Access to restricted source record requires elevated clearance")
 
     return SourceRecordDetailOut(

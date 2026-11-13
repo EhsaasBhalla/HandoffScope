@@ -99,19 +99,19 @@
 }
 
 .statValuePending {
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .statValueAccepted {
-  color: #34d399;
+  color: var(--color-success);
 }
 
 .statValueRejected {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .statValueClarify {
-  color: #60a5fa;
+  color: var(--color-info);
 }
 
 /* Readiness Banner */
@@ -127,13 +127,13 @@
 }
 
 .readinessReady {
-  background-color: rgba(16, 185, 129, 0.08);
-  border-color: rgba(16, 185, 129, 0.4);
+  background-color: var(--color-success-bg);
+  border-color: var(--color-success);
 }
 
 .readinessBlocked {
-  background-color: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.3);
+  background-color: var(--color-warning-bg);
+  border-color: var(--color-warning);
 }
 
 .readinessInfo {
@@ -144,13 +144,13 @@
 }
 
 .readinessIconReady {
-  color: #34d399;
+  color: var(--color-success);
   flex-shrink: 0;
   margin-top: 2px;
 }
 
 .readinessIconBlocked {
-  color: #fbbf24;
+  color: var(--color-warning);
   flex-shrink: 0;
   margin-top: 2px;
 }

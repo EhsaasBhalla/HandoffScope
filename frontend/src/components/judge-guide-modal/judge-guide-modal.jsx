@@ -55,7 +55,7 @@ const PERSONAS = [
     role: 'Departing Engineer',
     badge: 'Departing',
     description: 'Auth & payments architect; primary source of reconstructed project knowledge.',
-    color: '#f59e0b',
+    color: 'var(--color-warning)',
   },
 ];
 

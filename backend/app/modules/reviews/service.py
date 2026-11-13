@@ -15,6 +15,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.dependencies import get_user_context_capabilities
+from app.core.events import publish_case_event
 from app.core.exceptions import ForbiddenError, HandoffScopeError
 from app.db.enums import (
     CaseStatus,
@@ -631,6 +632,21 @@ def create_approved_version(
 
     db.commit()
     db.refresh(version)
+
+    # Index the newly frozen immutable snapshot for conversational RAG (non-blocking if embedder fails)
+    try:
+        from app.modules.rag.indexing import index_approved_version_chunks
+
+        index_approved_version_chunks(db, case_id=case_id, version_id=version.id)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    publish_case_event(
+        case_id=case_id,
+        event_type="version.approved",
+        entity_id=str(version.id),
+    )
     return version
 
 

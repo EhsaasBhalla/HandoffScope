@@ -161,12 +161,68 @@ async function request(endpoint, options = {}, { allowRefresh = true } = {}) {
   return data;
 }
 
+export function getAccessToken() {
+  return readStorage(ACCESS_KEY);
+}
+
+export function getApiBaseUrl() {
+  return BASE_URL;
+}
+
+async function downloadBlob(endpoint, fallbackFilename = 'download', { allowRefresh = true } = {}) {
+  const url = `${BASE_URL}${endpoint}`;
+  const headers = {};
+  if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  const storedAccess = readStorage(ACCESS_KEY);
+  if (storedAccess) headers.Authorization = `Bearer ${storedAccess}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers,
+    credentials: 'include',
+  });
+
+  if (response.status === 401 && allowRefresh) {
+    const refreshed = await performTokenRefresh();
+    if (refreshed) {
+      return downloadBlob(endpoint, fallbackFilename, { allowRefresh: false });
+    }
+  }
+
+  if (!response.ok) {
+    let message = `Download failed: ${response.status}`;
+    try {
+      const errData = await response.json();
+      message = errData?.detail || errData?.error?.message || message;
+    } catch {
+      // ignore non-json
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || fallbackFilename;
+
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+  return { filename, size: blob.size };
+}
+
 export const httpClient = {
   get:    (url, opts) => request(url, { ...opts, method: 'GET' }),
   post:   (url, body, opts) => request(url, { ...opts, method: 'POST', body: JSON.stringify(body) }),
   put:    (url, body, opts) => request(url, { ...opts, method: 'PUT', body: JSON.stringify(body) }),
   patch:  (url, body, opts) => request(url, { ...opts, method: 'PATCH', body: JSON.stringify(body) }),
   delete: (url, opts) => request(url, { ...opts, method: 'DELETE' }),
+  download: downloadBlob,
 
   // For file uploads — no JSON content type
   upload: (url, formData, opts) => request(url, {

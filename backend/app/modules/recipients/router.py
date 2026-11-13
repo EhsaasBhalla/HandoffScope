@@ -11,10 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
+from app.core.exceptions import ForbiddenError
 from app.modules.recipients.models import ResponsibilityAssignment
 from app.modules.recipients.schemas import (
     AssignResponsibilityRequest,
     DeclineResponsibilityRequest,
+    DelegateClaimRequest,
     RecipientAcknowledgementOut,
     ResponsibilityAssignmentOut,
     SuccessorCaseSummaryOut,
@@ -27,7 +29,9 @@ from app.modules.recipients.service import (
     assign_responsibility,
     build_recipient_projection,
     decline_responsibility,
+    delegate_claim_responsibility,
     list_successor_cases,
+    revoke_claim_delegation,
 )
 from app.modules.workspaces.models import User
 
@@ -107,6 +111,48 @@ def assign_case_responsibility_endpoint(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/recipients/claims/{claim_id}/delegate", response_model=ResponsibilityAssignmentOut, status_code=status.HTTP_201_CREATED)
+def delegate_claim_endpoint(
+    claim_id: uuid.UUID,
+    body: DelegateClaimRequest,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Delegate an individual claim within an assigned pack to another eligible project member."""
+    try:
+        assignment = delegate_claim_responsibility(
+            db,
+            claim_id=claim_id,
+            assigned_user_id=body.assigned_user_id,
+            delegated_by_user_id=user.id,
+            handover_version_id=body.handover_version_id,
+            note=body.note,
+        )
+        return _to_assignment_out(assignment)
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/responsibility-assignments/{assignment_id}/revoke", response_model=ResponsibilityAssignmentOut)
+def revoke_delegation_endpoint(
+    assignment_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke a claim-level delegation while preserving audit history and recalculating parent status."""
+    try:
+        assignment = revoke_claim_delegation(
+            db,
+            assignment_id=assignment_id,
+            user_id=user.id,
+        )
+        return _to_assignment_out(assignment)
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 @router.post("/responsibility-assignments/{assignment_id}/accept", response_model=ResponsibilityAssignmentOut)
 def accept_responsibility_endpoint(
     assignment_id: uuid.UUID,
@@ -121,6 +167,48 @@ def accept_responsibility_endpoint(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/recipients/claims/{claim_id}/delegate", response_model=ResponsibilityAssignmentOut, status_code=status.HTTP_201_CREATED)
+def delegate_claim_endpoint(
+    claim_id: uuid.UUID,
+    body: DelegateClaimRequest,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Delegate an individual claim within an assigned pack to another eligible project member."""
+    try:
+        assignment = delegate_claim_responsibility(
+            db,
+            claim_id=claim_id,
+            assigned_user_id=body.assigned_user_id,
+            delegated_by_user_id=user.id,
+            handover_version_id=body.handover_version_id,
+            note=body.note,
+        )
+        return _to_assignment_out(assignment)
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/responsibility-assignments/{assignment_id}/revoke", response_model=ResponsibilityAssignmentOut)
+def revoke_delegation_endpoint(
+    assignment_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke a claim-level delegation while preserving audit history and recalculating parent status."""
+    try:
+        assignment = revoke_claim_delegation(
+            db,
+            assignment_id=assignment_id,
+            user_id=user.id,
+        )
+        return _to_assignment_out(assignment)
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 @router.post("/responsibility-assignments/{assignment_id}/decline", response_model=ResponsibilityAssignmentOut)
 def decline_responsibility_endpoint(
     assignment_id: uuid.UUID,

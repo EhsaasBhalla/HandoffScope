@@ -15,11 +15,14 @@ import {
   XCircle,
   Sparkles,
   RefreshCw,
+  Trash2,
+  UserPlus,
 } from 'lucide-react';
 import { projectApi } from '../../api/project.api';
 import { caseApi } from '../../api/case.api';
 import { sourceApi } from '../../api/source.api';
 import { identityApi } from '../../api/identity.api';
+import { usePermissions } from '../../hooks/usePermissions';
 import styles from './project-detail.module.css';
 
 const TABS = [
@@ -33,8 +36,14 @@ const TABS = [
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const queryClient = useQueryClient();
+  const { hasCapability } = usePermissions();
+  const canManageMembers = hasCapability('project.members.manage') || hasCapability('project.manage');
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedUserMap, setSelectedUserMap] = useState({});
+  const [addMemberUserId, setAddMemberUserId] = useState('');
+  const [addMemberRole, setAddMemberRole] = useState('CONTRIBUTOR');
+  const [memberError, setMemberError] = useState('');
+  const [syncNotice, setSyncNotice] = useState('');
 
   // Fetch project details
   const { data: project, isLoading: projLoading } = useQuery({
@@ -48,6 +57,48 @@ export default function ProjectDetailPage() {
     queryKey: ['project-members', projectId],
     queryFn: () => projectApi.listProjectMembers(projectId),
     enabled: !!projectId,
+  });
+
+  // Fetch workspace members for adding new project members
+  const { data: workspaceMembers } = useQuery({
+    queryKey: ['workspace-members', project?.workspace_id],
+    queryFn: () => projectApi.listWorkspaceMembers(project.workspace_id),
+    enabled: !!project?.workspace_id && canManageMembers,
+  });
+
+  // Member mutations
+  const addOrUpdateMemberMutation = useMutation({
+    mutationFn: (payload) => projectApi.addProjectMember(projectId, payload),
+    onSuccess: () => {
+      setMemberError('');
+      setAddMemberUserId('');
+      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] });
+    },
+    onError: (err) => {
+      setMemberError(err.data?.detail || err.message || 'Failed to update project membership');
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId) => projectApi.removeProjectMember(projectId, userId),
+    onSuccess: () => {
+      setMemberError('');
+      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] });
+    },
+    onError: (err) => {
+      setMemberError(err.data?.detail || err.message || 'Failed to remove member');
+    },
+  });
+
+  const syncSourceMutation = useMutation({
+    mutationFn: (sourceId) => sourceApi.importSource(sourceId),
+    onSuccess: (res) => {
+      setSyncNotice(res?.message || 'Source sync started.');
+      queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
+    },
+    onError: (err) => {
+      setSyncNotice(err.data?.detail || err.message || 'Unable to start sync.');
+    },
   });
 
   // Fetch project cases
@@ -284,6 +335,7 @@ export default function ProjectDetailPage() {
                 Manage Sources
               </Link>
             </div>
+            {syncNotice && <div className={styles.infoBanner}>{syncNotice}</div>}
 
             {sources && sources.length > 0 ? (
               <div className={styles.sourcesList}>
@@ -292,9 +344,24 @@ export default function ProjectDetailPage() {
                     <GitBranch size={20} className={styles.sourceIcon} />
                     <div className={styles.sourceInfo}>
                       <h4>{s.name}</h4>
-                      <span className={styles.sourceType}>{s.source_type}</span>
+                      <span className={styles.sourceType}>
+                        {s.source_type}
+                        {s.last_successful_sync_at
+                          ? ` • Last synced ${new Date(s.last_successful_sync_at).toLocaleString()}`
+                          : ' • Not yet synced'}
+                      </span>
                     </div>
-                    <span className={styles.connectionBadge}>{s.connection_status}</span>
+                    <div className={styles.sourceItemRight}>
+                      <span className={styles.connectionBadge}>{s.connection_status}</span>
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        onClick={() => syncSourceMutation.mutate(s.id)}
+                        disabled={syncSourceMutation.isPending}
+                      >
+                        <RefreshCw size={13} /> Sync
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -448,6 +515,51 @@ export default function ProjectDetailPage() {
               <h3>Project Members</h3>
             </div>
 
+            {memberError && <div className={styles.errorBanner}>{memberError}</div>}
+
+            {canManageMembers && (
+              <div className={styles.addMemberBar}>
+                <select
+                  className={styles.userSelect}
+                  value={addMemberUserId}
+                  onChange={(e) => setAddMemberUserId(e.target.value)}
+                  aria-label="Select workspace member"
+                >
+                  <option value="">Select workspace member to add…</option>
+                  {(workspaceMembers || [])
+                    .filter((wm) => !(members || []).some((m) => m.user_id === wm.user_id))
+                    .map((wm) => (
+                      <option key={wm.user_id} value={wm.user_id}>
+                        {wm.user_display_name || wm.user_email} ({wm.role})
+                      </option>
+                    ))}
+                </select>
+                <select
+                  className={styles.userSelect}
+                  value={addMemberRole}
+                  onChange={(e) => setAddMemberRole(e.target.value)}
+                  aria-label="Select project role"
+                >
+                  <option value="CONTRIBUTOR">CONTRIBUTOR</option>
+                  <option value="REVIEWER">REVIEWER</option>
+                  <option value="LEAD">LEAD</option>
+                </select>
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  disabled={!addMemberUserId || addOrUpdateMemberMutation.isPending}
+                  onClick={() =>
+                    addOrUpdateMemberMutation.mutate({
+                      user_id: addMemberUserId,
+                      role: addMemberRole,
+                    })
+                  }
+                >
+                  <UserPlus size={14} /> Add Member
+                </button>
+              </div>
+            )}
+
             {members && members.length > 0 ? (
               <div className={styles.membersGrid}>
                 {members.map((m) => (
@@ -458,7 +570,39 @@ export default function ProjectDetailPage() {
                     <div className={styles.memberDetails}>
                       <h4>{m.user_display_name}</h4>
                       <p>{m.user_email}</p>
-                      <span className={styles.roleBadge}>{m.role}</span>
+                      <div className={styles.memberControls}>
+                        {canManageMembers ? (
+                          <>
+                            <select
+                              className={styles.roleSelectSmall}
+                              value={m.role}
+                              disabled={addOrUpdateMemberMutation.isPending}
+                              onChange={(e) =>
+                                addOrUpdateMemberMutation.mutate({
+                                  user_id: m.user_id,
+                                  role: e.target.value,
+                                })
+                              }
+                              aria-label={`Change role for ${m.user_display_name}`}
+                            >
+                              <option value="LEAD">LEAD</option>
+                              <option value="REVIEWER">REVIEWER</option>
+                              <option value="CONTRIBUTOR">CONTRIBUTOR</option>
+                            </select>
+                            <button
+                              type="button"
+                              className={styles.removeMemberBtn}
+                              disabled={removeMemberMutation.isPending}
+                              onClick={() => removeMemberMutation.mutate(m.user_id)}
+                              title="Remove from project"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <span className={styles.roleBadge}>{m.role}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

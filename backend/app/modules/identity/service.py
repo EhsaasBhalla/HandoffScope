@@ -39,23 +39,47 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
     if not source_ids:
         return list_mappings(db, project_id)
 
-    # 1. Distinct external authors with their name and contribution count
-    author_query = (
-        db.query(
-            SourceRecord.author_external_id,
-            func.max(SourceRecord.author_name).label("author_name"),
-            func.count(SourceRecord.id).label("cnt"),
-        )
+    # 1. Distinct external authors with source_type, optional email in metadata, and contribution counts
+    raw_records = (
+        db.query(SourceRecord)
         .filter(
             SourceRecord.connected_source_id.in_(source_ids),
             SourceRecord.author_external_id.isnot(None),
             SourceRecord.author_external_id != "",
         )
-        .group_by(SourceRecord.author_external_id)
         .all()
     )
+    if not raw_records:
+        return list_mappings(db, project_id)
 
-    if not author_query:
+    _BOT_MARKERS = ("[bot]", "dependabot", "renovate", "github-actions", "gitlab-bot")
+    _PROVIDER_MAP = {
+        "GITHUB_REPO": "github",
+        "GITLAB_REPO": "gitlab",
+        "JIRA_PROJECT": "jira",
+        "LINEAR_TEAM": "linear",
+        "SYNTHETIC_FIXTURE": "github",
+    }
+    grouped_authors: dict[str, dict] = {}
+    for rec in raw_records:
+        ext_u = (rec.author_external_id or "").strip()
+        if not ext_u or any(b in ext_u.lower() for b in _BOT_MARKERS):
+            continue
+        info = grouped_authors.setdefault(
+            ext_u,
+            {
+                "author_name": rec.author_name or "",
+                "provider": _PROVIDER_MAP.get(rec.source_type, "github"),
+                "author_email": None,
+            },
+        )
+        if rec.author_name and not info["author_name"]:
+            info["author_name"] = rec.author_name
+        meta_email = (rec.metadata_json or {}).get("author_email") if isinstance(rec.metadata_json, dict) else None
+        if isinstance(meta_email, str) and "@" in meta_email and not info["author_email"]:
+            info["author_email"] = meta_email.strip().lower()
+
+    if not grouped_authors:
         return list_mappings(db, project_id)
 
     # 2. Get project/workspace users for matching
@@ -63,7 +87,6 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Workspace members
     users = (
         db.query(User)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
@@ -71,35 +94,42 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
         .all()
     )
 
-    # Pre-fetch existing mappings
     existing_mappings = {
         m.external_username: m
         for m in db.query(IdentityMapping).filter(IdentityMapping.project_id == project_id).all()
     }
 
-    # 3. Match each author
-    for ext_username, author_name, count in author_query:
+    # 3. Match each author strictly as SUGGESTED (never auto-promote fuzzy/email matches to VERIFIED)
+    for ext_username, info in grouped_authors.items():
         norm_ext = ext_username.lower().strip()
-        norm_name = (author_name or "").lower().strip()
+        norm_name = (info["author_name"] or "").lower().strip()
+        ext_email = info["author_email"]
 
-        # Best candidate matching
         candidate_user: User | None = None
 
-        # Check 1: exact match on email prefix
-        for u in users:
-            email_prefix = u.email.split("@")[0].lower()
-            if email_prefix == norm_ext or email_prefix.replace(".", "") == norm_ext.replace("-", "").replace("_", ""):
-                candidate_user = u
-                break
+        # Check 1: Verified/exact email match from connector metadata (SUGGESTED until Lead confirms)
+        if ext_email:
+            for u in users:
+                if u.email.lower() == ext_email:
+                    candidate_user = u
+                    break
 
-        # Check 2: exact match on display name
+        # Check 2: Exact match on email prefix
+        if not candidate_user:
+            for u in users:
+                email_prefix = u.email.split("@")[0].lower()
+                if email_prefix == norm_ext or email_prefix.replace(".", "") == norm_ext.replace("-", "").replace("_", ""):
+                    candidate_user = u
+                    break
+
+        # Check 3: Exact display name
         if not candidate_user and norm_name:
             for u in users:
                 if u.display_name.lower() == norm_name:
                     candidate_user = u
                     break
 
-        # Check 3: substring / contains match
+        # Check 4: Substring / contains match (suggestion only)
         if not candidate_user:
             for u in users:
                 u_norm = u.display_name.lower().replace(" ", "")
@@ -109,7 +139,6 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
 
         if ext_username in existing_mappings:
             mapping = existing_mappings[ext_username]
-            # Don't overwrite human-verified mappings
             if mapping.confidence != IdentityConfidence.VERIFIED:
                 if candidate_user:
                     mapping.mapped_user_id = candidate_user.id
@@ -118,7 +147,7 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
             new_mapping = IdentityMapping(
                 id=uuid.uuid4(),
                 project_id=project_id,
-                external_provider="github",
+                external_provider=info["provider"],
                 external_username=ext_username,
                 external_id=ext_username,
                 mapped_user_id=candidate_user.id if candidate_user else None,

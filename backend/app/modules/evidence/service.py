@@ -11,6 +11,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.events import publish_case_event
 from app.db.enums import Priority, QuestionStatus, ReviewState
 from app.modules.audit.service import create_audit_event
 from app.modules.questions.models import Question
@@ -135,4 +136,10 @@ def review_claim(
 
     db.commit()
     db.refresh(claim)
+    if claim.transfer_pack and claim.transfer_pack.case_id:
+        publish_case_event(
+            case_id=claim.transfer_pack.case_id,
+            event_type="claim.reviewed",
+            entity_id=str(claim.id),
+        )
     return claim

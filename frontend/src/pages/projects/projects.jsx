@@ -33,8 +33,11 @@ export default function ProjectsPage() {
 
   const createMutation = useMutation({
     mutationFn: (data) => projectApi.createProject(activeWsId, data),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['projects', activeWsId] });
+      if (created?.id) {
+        queryClient.invalidateQueries({ queryKey: ['sources', created.id] });
+      }
       setShowCreateModal(false);
       setNewProjectName('');
       setNewProjectSlug('');
@@ -43,7 +46,7 @@ export default function ProjectsPage() {
       setCreateError('');
     },
     onError: (err) => {
-      setCreateError(err.data?.error?.message || err.message || 'Failed to create project');
+      setCreateError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to create project');
     },
   });
 
@@ -167,7 +170,7 @@ export default function ProjectsPage() {
               </div>
 
               <div className={styles.formGroup}>
-                <label>Repository URL</label>
+                <label>Repository URL (optional — auto-connects GitHub source)</label>
                 <input
                   type="url"
                   placeholder="https://github.com/org/repo"

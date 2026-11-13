@@ -9,7 +9,8 @@ import { useAuth } from '../context/AuthContext';
 const USER_CAPABILITY_MAP = {
   // Maya Sharma (Workspace OWNER / Project LEAD)
   'maya.sharma@example.test': [
-    'workspace.manage', 'workspace.view', 'project.manage', 'project.view',
+    'workspace.manage', 'workspace.view', 'workspace.members.manage',
+    'project.create', 'project.manage', 'project.view', 'project.members.manage',
     'case.create', 'case.manage', 'case.view', 'source.connect', 'source.view',
     'source.import', 'extraction.trigger', 'extraction.view', 'pack.create',
     'pack.manage', 'pack.view', 'review.request', 'review.submit', 'review.view',

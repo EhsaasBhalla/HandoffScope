@@ -22,6 +22,7 @@ def register_all_models() -> None:
     import app.modules.reviews.models  # noqa: F401
     import app.modules.sharing.models  # noqa: F401
     import app.modules.recipients.models  # noqa: F401
+    import app.modules.rag.models  # noqa: F401
 
 
 def ensure_additive_schema(bind_engine: Engine) -> None:
@@ -34,6 +35,30 @@ def ensure_additive_schema(bind_engine: Engine) -> None:
     is_pg = bind_engine.dialect.name == "postgresql"
     json_sql = "JSONB" if is_pg else "JSON"
     uuid_sql = "UUID" if is_pg else "CHAR(32)"
+
+    # Safely extend PostgreSQL enum types when existing DB predates Round 3 enum values
+    if is_pg:
+        for enum_name, enum_val in (
+            ("source_type_enum", "GITLAB_REPO"),
+            ("source_type_enum", "JIRA_PROJECT"),
+            ("source_type_enum", "LINEAR_TEAM"),
+            ("sourcetype", "GITLAB_REPO"),
+            ("sourcetype", "JIRA_PROJECT"),
+            ("sourcetype", "LINEAR_TEAM"),
+        ):
+            try:
+                with bind_engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "DO $$ BEGIN "
+                            f"IF EXISTS (SELECT 1 FROM pg_type WHERE typname = '{enum_name}') THEN "
+                            f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{enum_val}'; "
+                            "END IF; "
+                            "END $$;"
+                        )
+                    )
+            except Exception:
+                pass
 
     inspector = inspect(bind_engine)
     existing_tables = set(inspector.get_table_names())
@@ -60,6 +85,10 @@ def ensure_additive_schema(bind_engine: Engine) -> None:
     _ensure_column("question_responses", "limitations", "TEXT")
     _ensure_column("question_responses", "conflicts_json", json_sql)
     _ensure_column("question_responses", "provenance_json", json_sql)
+    _ensure_column("responsibility_assignments", "claim_id", uuid_sql)
+    _ensure_column("responsibility_assignments", "delegated_from_user_id", uuid_sql)
+    _ensure_column("responsibility_assignments", "delegation_note", "TEXT")
+    _ensure_column("responsibility_assignments", "revoked_at", "TIMESTAMP WITH TIME ZONE" if is_pg else "DATETIME")
 
     if "claims" in existing_tables:
         existing_indexes = {idx["name"] for idx in inspector.get_indexes("claims")}

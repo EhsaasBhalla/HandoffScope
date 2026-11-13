@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.dependencies import get_user_context_capabilities
+from app.core.events import publish_case_event
 from app.core.exceptions import ConflictError, ForbiddenError
 from app.db.enums import (
     CaseParticipantRole,
@@ -212,6 +213,11 @@ def create_question(
     )
     db.commit()
     db.refresh(question)
+    publish_case_event(
+        case_id=question.case_id,
+        event_type="question.answered",
+        entity_id=str(question.id),
+    )
     return _to_question_out(question)
 
 
@@ -314,6 +320,11 @@ def update_question(
 
     db.commit()
     db.refresh(question)
+    publish_case_event(
+        case_id=question.case_id,
+        event_type="question.answered",
+        entity_id=str(question.id),
+    )
     return _to_question_out(question)
 
 
@@ -352,6 +363,11 @@ def add_response(
     )
     db.commit()
     db.refresh(question)
+    publish_case_event(
+        case_id=question.case_id,
+        event_type="question.answered",
+        entity_id=str(question.id),
+    )
     return _to_question_out(question)
 
 
@@ -777,6 +793,11 @@ def review_response(
     )
     db.commit()
     db.refresh(question)
+    publish_case_event(
+        case_id=question.case_id,
+        event_type="question.reviewed",
+        entity_id=str(question.id),
+    )
     return _to_question_out(question, promotion_result=promotion_result)
 
 
@@ -824,31 +845,24 @@ def generate_ai_answer(
         _ACTIVE_AI_QUESTIONS.add(question.id)
 
     try:
-        is_recipient_role = (
-            db.query(CaseParticipant)
-            .filter(
-                CaseParticipant.case_id == case.id,
-                CaseParticipant.user_id == requester.id,
-                CaseParticipant.role == CaseParticipantRole.RECIPIENT,
-            )
-            .first()
-            is not None
-        )
-        allow_restricted = (
-            ("OWNER" in ws_roles or proj_roles.get(str(case.project_id)) == "LEAD")
-            and not is_recipient_role
+        from app.modules.evidence.clearance import (
+            get_restricted_claim_ids,
+            has_restricted_clearance,
+            resolve_case_source_ids,
         )
 
-        case_source_rows = db.query(CaseSource).filter(CaseSource.case_id == case.id).all()
-        if case_source_rows:
-            source_ids = [cs.connected_source_id for cs in case_source_rows]
-        else:
-            source_ids = [
-                s.id
-                for s in db.query(ConnectedSource)
-                .filter(ConnectedSource.project_id == case.project_id)
-                .all()
-            ]
+        allow_restricted = has_restricted_clearance(
+            db,
+            user_id=requester.id,
+            project_id=case.project_id,
+            case_id=case.id,
+            user=requester,
+        )
+        source_ids = resolve_case_source_ids(
+            db,
+            case_id=case.id,
+            project_id=case.project_id,
+        )
 
         sr_query = (
             db.query(SourceRecord).filter(SourceRecord.connected_source_id.in_(source_ids))
@@ -876,15 +890,7 @@ def generate_ai_answer(
                 .all()
             )
             restricted_claim_ids = (
-                {
-                    ce.claim_id
-                    for ce in db.query(ClaimEvidence.claim_id)
-                    .filter(
-                        ClaimEvidence.claim_id.in_([c.id for c in all_claims]),
-                        ClaimEvidence.is_restricted.is_(True),
-                    )
-                    .all()
-                }
+                get_restricted_claim_ids(db, claim_ids=[c.id for c in all_claims])
                 if all_claims and not allow_restricted
                 else set()
             )

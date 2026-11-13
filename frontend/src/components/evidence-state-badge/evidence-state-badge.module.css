@@ -12,21 +12,21 @@
 }
 
 .supported {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background-color: var(--color-supported-bg);
+  color: var(--color-supported);
+  border: 1px solid var(--color-supported);
 }
 
 .inferred {
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background-color: var(--color-inferred-bg);
+  color: var(--color-inferred);
+  border: 1px solid var(--color-inferred);
 }
 
 .conflicting {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background-color: var(--color-conflicting-bg);
+  color: var(--color-conflicting);
+  border: 1px solid var(--color-conflicting);
 }
 
 .unknown {

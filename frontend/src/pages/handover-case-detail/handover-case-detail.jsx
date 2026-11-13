@@ -21,6 +21,9 @@ import {
   UserPlus,
   Trash2,
   Send,
+  Download,
+  FileArchive,
+  FileCheck,
 } from 'lucide-react';
 import { caseApi } from '../../api/case.api';
 import { evidenceApi } from '../../api/evidence.api';
@@ -30,11 +33,14 @@ import { reviewApi } from '../../api/review.api';
 import { sharingApi } from '../../api/sharing.api';
 import { recipientApi } from '../../api/recipient.api';
 import { projectApi } from '../../api/project.api';
+import { exportApi } from '../../api/export.api';
 import { httpClient } from '../../api/httpClient';
 import { ClaimCard } from '../../components/claim-card/claim-card';
 import { ApprovalPreflightPanel } from '../../components/approval-preflight-panel/approval-preflight-panel';
 import { QuestionThreadCard } from '../../components/question-card/question-card';
-import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle } from 'lucide-react';
+import { HandoverChatDrawer } from '../../components/handover-chat-drawer/handover-chat-drawer';
+import { useCaseLiveUpdates } from '../../hooks/useCaseLiveUpdates';
+import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle, Radio } from 'lucide-react';
 import styles from './handover-case-detail.module.css';
 
 const STAGES = [
@@ -72,6 +78,14 @@ export default function HandoverCaseDetailPage() {
   const [reviewFilter, setReviewFilter] = useState('ALL');
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
   const [reconNotice, setReconNotice] = useState(null);
+
+  // Compliance Export & Verification state (Round 3)
+  const [exportBusyKey, setExportBusyKey] = useState('');
+  const [exportError, setExportError] = useState('');
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const { mode: liveMode } = useCaseLiveUpdates(caseId);
 
   // Sharing & Recipient state (Phase 9)
   const [showShareModal, setShowShareModal] = useState(false);
@@ -115,7 +129,7 @@ export default function HandoverCaseDetailPage() {
   const { data: versions } = useQuery({
     queryKey: ['case-versions', caseId],
     queryFn: () => reviewApi.listVersions(caseId),
-    enabled: !!caseId && (activeTab === 'versions' || activeTab === 'review' || activeTab === 'sharing'),
+    enabled: !!caseId,
   });
 
   const reviewClaimMutation = useMutation({
@@ -346,6 +360,32 @@ export default function HandoverCaseDetailPage() {
         </div>
 
         <div className={styles.headerActions}>
+          <span
+            title={liveMode === 'live' ? 'Real-time SSE stream connected' : 'Periodic sync fallback active'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '11px',
+              padding: '4px 9px',
+              borderRadius: '999px',
+              border: '1px solid var(--color-border)',
+              color: liveMode === 'live' ? 'var(--color-success)' : 'var(--color-text-muted)',
+              backgroundColor: liveMode === 'live' ? 'var(--color-success-bg)' : 'var(--color-bg-secondary)',
+            }}
+          >
+            <Radio size={11} />
+            {liveMode === 'live' ? 'Live' : 'Sync'}
+          </span>
+          <button
+            type="button"
+            className={styles.btnActionSm}
+            style={{ padding: '8px 12px', fontSize: 'var(--text-xs)' }}
+            onClick={() => setChatOpen(true)}
+          >
+            <MessageSquare size={14} /> Ask Handover
+          </button>
+
           <button
             className={styles.primaryActionBtn}
             onClick={() => reconstructMutation.mutate()}
@@ -428,8 +468,8 @@ export default function HandoverCaseDetailPage() {
             alignItems: 'center',
             gap: '12px',
             fontSize: 'var(--text-xs)',
-            border: `1px solid ${reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'rgba(245, 158, 11, 0.45)' : 'rgba(16, 185, 129, 0.4)'}`,
-            backgroundColor: reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.08)',
+            border: `1px solid ${reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'var(--color-warning)' : 'var(--color-success)'}`,
+            backgroundColor: reconNotice.fallback_used || reconNotice.provider_mode !== 'live' ? 'var(--color-warning-bg)' : 'var(--color-success-bg)',
             color: 'var(--color-text-primary)',
           }}
         >
@@ -659,25 +699,25 @@ export default function HandoverCaseDetailPage() {
               </div>
               <div className={styles.reviewStatCard}>
                 <span className={styles.reviewStatTitle}>Pending Review</span>
-                <span className={styles.reviewStatVal} style={{ color: '#fbbf24' }}>
+                <span className={styles.reviewStatVal} style={{ color: 'var(--color-warning)' }}>
                   {queueSummary?.pending_review_count ?? 0}
                 </span>
               </div>
               <div className={styles.reviewStatCard}>
                 <span className={styles.reviewStatTitle}>Accepted</span>
-                <span className={styles.reviewStatVal} style={{ color: '#34d399' }}>
+                <span className={styles.reviewStatVal} style={{ color: 'var(--color-success)' }}>
                   {(queueSummary?.accepted_count || 0) + (queueSummary?.edited_and_accepted_count || 0)}
                 </span>
               </div>
               <div className={styles.reviewStatCard}>
                 <span className={styles.reviewStatTitle}>Clarifications</span>
-                <span className={styles.reviewStatVal} style={{ color: '#60a5fa' }}>
+                <span className={styles.reviewStatVal} style={{ color: 'var(--color-info)' }}>
                   {queueSummary?.needs_clarification_count ?? 0}
                 </span>
               </div>
               <div className={styles.reviewStatCard}>
                 <span className={styles.reviewStatTitle}>Rejected</span>
-                <span className={styles.reviewStatVal} style={{ color: '#f87171' }}>
+                <span className={styles.reviewStatVal} style={{ color: 'var(--color-error)' }}>
                   {queueSummary?.rejected_count ?? 0}
                 </span>
               </div>
@@ -686,7 +726,7 @@ export default function HandoverCaseDetailPage() {
                 <span
                   className={styles.reviewStatVal}
                   style={{
-                    color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? '#fbbf24' : '#34d399',
+                    color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? 'var(--color-warning)' : 'var(--color-success)',
                   }}
                 >
                   {(queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0)}
@@ -755,16 +795,83 @@ export default function HandoverCaseDetailPage() {
 
         {activeTab === 'versions' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)' }}>
                   Approved Version History ({versions?.length || 0})
                 </h3>
                 <p style={{ margin: '4px 0 0', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                  Immutable audit snapshots capturing the verified state of all knowledge areas and claims.
+                  Immutable snapshots capturing approved handover state with tamper-evident PDF and signed archive exports.
                 </p>
               </div>
+              <label
+                className={styles.btnActionSm}
+                style={{ cursor: verifyBusy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <FileCheck size={13} />
+                {verifyBusy ? 'Verifying Archive…' : 'Verify Compliance Bundle (.zip)'}
+                <input
+                  type="file"
+                  accept=".zip,application/zip"
+                  style={{ display: 'none' }}
+                  disabled={verifyBusy}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    setExportError('');
+                    setVerifyBusy(true);
+                    try {
+                      const res = await exportApi.verifyBundle(file);
+                      setVerifyResult(res);
+                    } catch (err) {
+                      setExportError(err.message || 'Archive verification failed.');
+                    } finally {
+                      setVerifyBusy(false);
+                    }
+                  }}
+                />
+              </label>
             </div>
+
+            {exportError && (
+              <div style={{ padding: '10px 12px', borderRadius: '6px', backgroundColor: 'var(--color-error-bg)', border: '1px solid var(--color-error)', color: 'var(--color-error)', fontSize: '12px' }}>
+                {exportError}
+              </div>
+            )}
+
+            {verifyResult && (
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  backgroundColor: verifyResult.overall_status === 'VALID' ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                  border: `1px solid ${verifyResult.overall_status === 'VALID' ? 'var(--color-success)' : 'var(--color-error)'}`,
+                  fontSize: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong>Verification Outcome: {verifyResult.overall_status}</strong>
+                  <button type="button" onClick={() => setVerifyResult(null)} style={{ color: 'inherit' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div>
+                  Integrity: {verifyResult.integrity_valid ? 'Valid' : 'Failed'} • Signature: {verifyResult.signature_valid ? 'Ed25519 Valid' : 'Invalid'} • Trusted Signer: {verifyResult.trusted_signer_verified ? 'Verified' : 'Unverified'} ({verifyResult.artifacts_checked} artifacts checked)
+                </div>
+                {verifyResult.public_key_fingerprint && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                    Fingerprint: {verifyResult.public_key_fingerprint}
+                  </div>
+                )}
+                {verifyResult.errors?.length > 0 && (
+                  <div style={{ color: 'var(--color-error)' }}>{verifyResult.errors.join(' | ')}</div>
+                )}
+              </div>
+            )}
 
             {!versions || versions.length === 0 ? (
               <div className={styles.placeholderTab}>
@@ -802,7 +909,7 @@ export default function HandoverCaseDetailPage() {
                       </div>
                     )}
 
-                    <div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                       <button
                         className={styles.btnActionSm}
                         onClick={async () => {
@@ -811,6 +918,42 @@ export default function HandoverCaseDetailPage() {
                         }}
                       >
                         <Eye size={12} /> View Frozen Snapshot JSON
+                      </button>
+                      <button
+                        className={styles.btnActionSm}
+                        disabled={exportBusyKey === `pdf-${v.version_number}`}
+                        onClick={async () => {
+                          setExportError('');
+                          setExportBusyKey(`pdf-${v.version_number}`);
+                          try {
+                            await exportApi.downloadCertificatePdf(caseId, v.version_number);
+                          } catch (err) {
+                            setExportError(err.message || 'Failed to download PDF certificate.');
+                          } finally {
+                            setExportBusyKey('');
+                          }
+                        }}
+                      >
+                        <Download size={12} />
+                        {exportBusyKey === `pdf-${v.version_number}` ? 'Generating PDF…' : 'Certificate PDF'}
+                      </button>
+                      <button
+                        className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                        disabled={exportBusyKey === `zip-${v.version_number}`}
+                        onClick={async () => {
+                          setExportError('');
+                          setExportBusyKey(`zip-${v.version_number}`);
+                          try {
+                            await exportApi.downloadComplianceBundle(caseId, v.version_number);
+                          } catch (err) {
+                            setExportError(err.message || 'Failed to export compliance bundle.');
+                          } finally {
+                            setExportBusyKey('');
+                          }
+                        }}
+                      >
+                        <FileArchive size={12} />
+                        {exportBusyKey === `zip-${v.version_number}` ? 'Packaging ZIP…' : 'Signed Compliance Bundle (.zip)'}
                       </button>
                     </div>
                   </div>
@@ -875,7 +1018,7 @@ export default function HandoverCaseDetailPage() {
                           <button
                             className={styles.btnActionSm}
                             onClick={() => revokeShareMutation.mutate(g.id)}
-                            style={{ color: '#f87171' }}
+                            style={{ color: 'var(--color-error)' }}
                           >
                             <Trash2 size={12} /> Revoke Access
                           </button>
@@ -950,8 +1093,8 @@ export default function HandoverCaseDetailPage() {
                           <span
                             className={styles.supersededPill}
                             style={{
-                              color: isAccepted ? '#34d399' : isDeclined ? '#f87171' : '#fbbf24',
-                              borderColor: isAccepted ? 'rgba(16,185,129,0.3)' : isDeclined ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)',
+                              color: isAccepted ? 'var(--color-success)' : isDeclined ? 'var(--color-error)' : 'var(--color-warning)',
+                              borderColor: isAccepted ? 'var(--color-success)' : isDeclined ? 'var(--color-error)' : 'var(--color-warning)',
                             }}
                           >
                             {r.status.replace('_', ' ')}
@@ -969,7 +1112,7 @@ export default function HandoverCaseDetailPage() {
                         </div>
 
                         {r.decline_reason && (
-                          <div className={styles.versionReason} style={{ borderLeftColor: '#f87171', color: '#f87171' }}>
+                          <div className={styles.versionReason} style={{ borderLeftColor: 'var(--color-error)', color: 'var(--color-error)' }}>
                             <strong>Decline Reason:</strong> {r.decline_reason}
                           </div>
                         )}
@@ -1321,6 +1464,15 @@ export default function HandoverCaseDetailPage() {
           </div>
         </div>
       )}
+
+      <HandoverChatDrawer
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        caseId={caseId}
+        hasApprovedVersion={Boolean(versions && versions.length > 0)}
+        approvedVersionNumber={versions?.[0]?.version_number || null}
+        isRecipientOnly={false}
+      />
     </div>
   );
 }

@@ -17,15 +17,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    restart: always
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -34,7 +25,6 @@ services:
     environment:
       - APP_ENV=production
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-handoffscope}:${POSTGRES_PASSWORD:-handoffscope_secure_pass_2026}@db:5432/${POSTGRES_DB:-handoffscope}
-      - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-change-in-production-use-a-long-random-string}
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost", "http://localhost:80"]}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
@@ -45,30 +35,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
-
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: always
-    environment:
-      - APP_ENV=production
-      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-handoffscope}:${POSTGRES_PASSWORD:-handoffscope_secure_pass_2026}@db:5432/${POSTGRES_DB:-handoffscope}
-      - REDIS_URL=redis://redis:6379/0
-      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - UPLOAD_DIR=/app/storage/uploads
-    volumes:
-      - upload_storage_prod:/app/storage/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: python -m app.workers.runner
+    # Single-process uvicorn keeps the in-process ThreadPoolExecutor job pool and SSE bus cohesive
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 
   frontend:
     build:

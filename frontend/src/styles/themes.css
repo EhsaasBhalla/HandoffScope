@@ -1,128 +1,178 @@
-/* ─── Theme Definitions ──────────────────────────────────────
-   Dark = warm charcoal/graphite.  Light = warm paper/parchment.
-   Accent = muted brass/dark-gold.
+/* ─── Theme Definitions (Corporate Enterprise Palette) ────────
+   Light: warm neutral canvas (#F3F4F1), clean cards (#FFFFFF),
+          deep forest-charcoal navigation (#26332F), muted teal accent (#527568).
+   Dark:  deep slate-forest surfaces (#171F1C / #202A26) with
+          accessible eucalyptus accents and verified WCAG contrast.
 ──────────────────────────────────────────────────────────── */
-
-/* ── Dark Theme (default) ─────────────────────────────────── */
-[data-theme='dark'] {
-  /* Backgrounds */
-  --color-bg-primary:    #1a1816;
-  --color-bg-secondary:  #22201d;
-  --color-bg-tertiary:   #2a2825;
-  --color-bg-elevated:   #302e2a;
-  --color-bg-hover:      #353330;
-  --color-bg-active:     #3d3b37;
-  --color-bg-input:      #252320;
-
-  /* Text */
-  --color-text-primary:   #e8e2d9;
-  --color-text-secondary: #b5ae9f;
-  --color-text-muted:     #7d7869;
-  --color-text-disabled:  #5a564e;
-  --color-text-inverse:   #1a1816;
-
-  /* Accent — muted brass/dark gold */
-  --color-accent:         #b8860b;
-  --color-accent-hover:   #cc9a1d;
-  --color-accent-active:  #a07508;
-  --color-accent-subtle:  rgba(184, 134, 11, 0.12);
-  --color-accent-text:    #d4a843;
-
-  /* Borders */
-  --color-border:         #3d3b37;
-  --color-border-subtle:  #2f2d29;
-  --color-border-strong:  #524f4a;
-  --color-border-accent:  rgba(184, 134, 11, 0.30);
-
-  /* Evidence State Indicators */
-  --color-supported:      #5a8a6a;
-  --color-supported-bg:   rgba(90, 138, 106, 0.12);
-  --color-inferred:       #8a7a4a;
-  --color-inferred-bg:    rgba(138, 122, 74, 0.12);
-  --color-conflicting:    #8a4a4a;
-  --color-conflicting-bg: rgba(138, 74, 74, 0.12);
-  --color-unknown:        #6a6a6a;
-  --color-unknown-bg:     rgba(106, 106, 106, 0.12);
-
-  /* Semantic Status */
-  --color-success:        #5a8a6a;
-  --color-success-bg:     rgba(90, 138, 106, 0.10);
-  --color-warning:        #b8860b;
-  --color-warning-bg:     rgba(184, 134, 11, 0.10);
-  --color-error:          #8a4a4a;
-  --color-error-bg:       rgba(138, 74, 74, 0.10);
-  --color-info:           #5a7a9a;
-  --color-info-bg:        rgba(90, 122, 154, 0.10);
-
-  /* Scrollbar */
-  --color-scrollbar:      #3d3b37;
-  --color-scrollbar-hover:#524f4a;
-
-  /* Code blocks */
-  --color-code-bg:        #1e1c19;
-  --color-code-border:    #2f2d29;
-
-  color-scheme: dark;
-}
 
 /* ── Light Theme ──────────────────────────────────────────── */
 [data-theme='light'] {
-  /* Backgrounds — warm paper/parchment */
-  --color-bg-primary:    #f5f0eb;
-  --color-bg-secondary:  #ece6df;
-  --color-bg-tertiary:   #e3ddd5;
-  --color-bg-elevated:   #ffffff;
-  --color-bg-hover:      #e8e2da;
-  --color-bg-active:     #ddd7ce;
-  --color-bg-input:      #ffffff;
+  /* Canonical Corporate Tokens */
+  --app-canvas:          #F3F4F1;
+  --surface-primary:     #FFFFFF;
+  --surface-secondary:   #EAEDE8;
+  --surface-sidebar:     #26332F;
+  --text-primary:        #202A27;
+  --text-secondary:      #596760;
+  --text-muted:          #65726B;
+  --border-subtle:       #DDE3DC;
+  --accent-primary:      #527568;
+  --accent-hover:        #405F53;
+  --accent-soft:         #E3EEE8;
+  --accent-secondary:    #9A765D;
+  --status-success:      #397456;
+  --status-warning:      #A66C28;
+  --status-danger:       #B24F4B;
+  --status-info:         #47647D;
 
-  /* Text */
-  --color-text-primary:   #2a2520;
-  --color-text-secondary: #5a5347;
-  --color-text-muted:     #8a8275;
-  --color-text-disabled:  #b5ae9f;
-  --color-text-inverse:   #f5f0eb;
+  /* Sidebar Contrast Tokens (dark structural rail in light theme) */
+  --sidebar-text:        #DFE6E1;
+  --sidebar-text-muted:  #9BA9A1;
+  --sidebar-hover-bg:    rgba(255, 255, 255, 0.08);
+  --sidebar-active-bg:   rgba(141, 182, 162, 0.18);
+  --sidebar-active-text: #FFFFFF;
+  --sidebar-border:      #34453F;
 
-  /* Accent — deeper brass for contrast on light */
-  --color-accent:         #9a7209;
-  --color-accent-hover:   #7d5c06;
-  --color-accent-active:  #614804;
-  --color-accent-subtle:  rgba(154, 114, 9, 0.08);
-  --color-accent-text:    #7d5c06;
+  /* Legacy Alias Tokens Mapped Cleanly */
+  --color-bg-primary:    var(--app-canvas);
+  --color-bg-secondary:  var(--surface-primary);
+  --color-bg-tertiary:   var(--surface-secondary);
+  --color-bg-elevated:   #FFFFFF;
+  --color-bg-hover:      #E5E9E3;
+  --color-bg-active:     #D9DFD6;
+  --color-bg-input:      #FFFFFF;
 
-  /* Borders */
-  --color-border:         #d5cfc6;
-  --color-border-subtle:  #e3ddd5;
-  --color-border-strong:  #b5ae9f;
-  --color-border-accent:  rgba(154, 114, 9, 0.25);
+  --color-text-primary:   var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted:     var(--text-muted);
+  --color-text-disabled:  #9DA6A0;
+  --color-text-inverse:   #FFFFFF;
+
+  --color-accent:         var(--accent-primary);
+  --color-accent-hover:   var(--accent-hover);
+  --color-accent-active:  #334E44;
+  --color-accent-subtle:  var(--accent-soft);
+  --color-accent-text:    #36564A;
+
+  --color-border:         #CFD7CE;
+  --color-border-subtle:  var(--border-subtle);
+  --color-border-strong:  #B0BCB0;
+  --color-border-hover:   #A3B2A4;
+  --color-border-accent:  rgba(82, 117, 104, 0.35);
 
   /* Evidence State Indicators */
-  --color-supported:      #3d7a4f;
-  --color-supported-bg:   rgba(61, 122, 79, 0.08);
-  --color-inferred:       #7a6a3a;
-  --color-inferred-bg:    rgba(122, 106, 58, 0.08);
-  --color-conflicting:    #9a3a3a;
-  --color-conflicting-bg: rgba(154, 58, 58, 0.08);
-  --color-unknown:        #7a7a7a;
-  --color-unknown-bg:     rgba(122, 122, 122, 0.08);
+  --color-supported:      var(--status-success);
+  --color-supported-bg:   rgba(57, 116, 86, 0.10);
+  --color-inferred:       var(--status-warning);
+  --color-inferred-bg:    rgba(166, 108, 40, 0.10);
+  --color-conflicting:    var(--status-danger);
+  --color-conflicting-bg: rgba(178, 79, 75, 0.10);
+  --color-unknown:        #5E6A64;
+  --color-unknown-bg:     rgba(94, 106, 100, 0.10);
 
   /* Semantic Status */
-  --color-success:        #3d7a4f;
-  --color-success-bg:     rgba(61, 122, 79, 0.06);
-  --color-warning:        #9a7209;
-  --color-warning-bg:     rgba(154, 114, 9, 0.06);
-  --color-error:          #9a3a3a;
-  --color-error-bg:       rgba(154, 58, 58, 0.06);
-  --color-info:           #3a6a9a;
-  --color-info-bg:        rgba(58, 106, 154, 0.06);
+  --color-success:        var(--status-success);
+  --color-success-bg:     rgba(57, 116, 86, 0.09);
+  --color-warning:        var(--status-warning);
+  --color-warning-bg:     rgba(166, 108, 40, 0.09);
+  --color-error:          var(--status-danger);
+  --color-error-bg:       rgba(178, 79, 75, 0.09);
+  --color-info:           var(--status-info);
+  --color-info-bg:        rgba(71, 100, 125, 0.09);
 
   /* Scrollbar */
-  --color-scrollbar:      #d5cfc6;
-  --color-scrollbar-hover:#b5ae9f;
+  --color-scrollbar:      #C8D1C7;
+  --color-scrollbar-hover:#A6B3A6;
 
   /* Code blocks */
-  --color-code-bg:        #ece6df;
-  --color-code-border:    #d5cfc6;
+  --color-code-bg:        #EFF2EE;
+  --color-code-border:    #D5DDD4;
 
   color-scheme: light;
+}
+
+/* ── Dark Theme ───────────────────────────────────────────── */
+[data-theme='dark'] {
+  /* Canonical Corporate Tokens */
+  --app-canvas:          #171F1C;
+  --surface-primary:     #202A26;
+  --surface-secondary:   #293630;
+  --surface-sidebar:     #141B18;
+  --text-primary:        #EDF2EE;
+  --text-secondary:      #B4C0B8;
+  --text-muted:          #8D9B92;
+  --border-subtle:       #36443C;
+  --accent-primary:      #466F5F; /* Accessible solid fill with white text >= 5.5:1 */
+  --accent-hover:        #53826F;
+  --accent-soft:         #253830;
+  --accent-secondary:    #B48E72;
+  --status-success:      #7FC29A;
+  --status-warning:      #D4A35F;
+  --status-danger:       #E08A83;
+  --status-info:         #8DB2CE;
+
+  /* Sidebar Contrast Tokens */
+  --sidebar-text:        #D6E0DA;
+  --sidebar-text-muted:  #839289;
+  --sidebar-hover-bg:    #222D28;
+  --sidebar-active-bg:   #253830;
+  --sidebar-active-text: #A5D0BA;
+  --sidebar-border:      #26332D;
+
+  /* Legacy Alias Tokens Mapped Cleanly */
+  --color-bg-primary:    var(--app-canvas);
+  --color-bg-secondary:  var(--surface-primary);
+  --color-bg-tertiary:   var(--surface-secondary);
+  --color-bg-elevated:   #26322D;
+  --color-bg-hover:      #2C3A34;
+  --color-bg-active:     #34443D;
+  --color-bg-input:      #1B2420;
+
+  --color-text-primary:   var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted:     var(--text-muted);
+  --color-text-disabled:  #606D65;
+  --color-text-inverse:   #FFFFFF;
+
+  --color-accent:         var(--accent-primary);
+  --color-accent-hover:   var(--accent-hover);
+  --color-accent-active:  #3A5D50;
+  --color-accent-subtle:  var(--accent-soft);
+  --color-accent-text:    #93C2AB;
+
+  --color-border:         #36443C;
+  --color-border-subtle:  #2B3831;
+  --color-border-strong:  #4D5E54;
+  --color-border-hover:   #586C60;
+  --color-border-accent:  rgba(141, 182, 162, 0.32);
+
+  /* Evidence State Indicators */
+  --color-supported:      var(--status-success);
+  --color-supported-bg:   rgba(127, 194, 154, 0.13);
+  --color-inferred:       var(--status-warning);
+  --color-inferred-bg:    rgba(212, 163, 95, 0.13);
+  --color-conflicting:    var(--status-danger);
+  --color-conflicting-bg: rgba(224, 138, 131, 0.13);
+  --color-unknown:        #9AA79F;
+  --color-unknown-bg:     rgba(154, 167, 159, 0.13);
+
+  /* Semantic Status */
+  --color-success:        var(--status-success);
+  --color-success-bg:     rgba(127, 194, 154, 0.12);
+  --color-warning:        var(--status-warning);
+  --color-warning-bg:     rgba(212, 163, 95, 0.12);
+  --color-error:          var(--status-danger);
+  --color-error-bg:       rgba(224, 138, 131, 0.12);
+  --color-info:           var(--status-info);
+  --color-info-bg:        rgba(141, 178, 206, 0.12);
+
+  /* Scrollbar */
+  --color-scrollbar:      #36443C;
+  --color-scrollbar-hover:#4E6156;
+
+  /* Code blocks */
+  --color-code-bg:        #161E1B;
+  --color-code-border:    #2D3A33;
+
+  color-scheme: dark;
 }

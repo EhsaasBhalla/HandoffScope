@@ -96,12 +96,28 @@ class ResponsibilityAssignment(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    # Round 3: optional claim-level delegation overlay (NULL for pack-level assignments)
+    claim_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("claims.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    delegated_from_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    delegation_note = Column(Text, nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     transfer_pack = relationship("TransferPack")
     version = relationship("HandoverVersion")
+    claim = relationship("Claim")
     assignee = relationship("User", foreign_keys=[assigned_user_id])
     assigner = relationship("User", foreign_keys=[assigned_by])
+    delegated_from = relationship("User", foreign_keys=[delegated_from_user_id])
 
     acceptance = relationship(
         "ResponsibilityAcceptance",

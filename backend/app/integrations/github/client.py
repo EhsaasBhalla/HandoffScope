@@ -93,6 +93,16 @@ class GitHubClient:
     def get_repo(self, owner: str, repo: str) -> dict:
         return self._get(f"{GITHUB_API}/repos/{owner}/{repo}")
 
+    def get_branch(self, owner: str, repo: str, branch: str) -> dict:
+        return self._get(f"{GITHUB_API}/repos/{owner}/{repo}/branches/{branch}")
+
+    def get_git_tree(self, owner: str, repo: str, tree_sha: str, *, recursive: bool = True) -> dict:
+        params = {"recursive": "1"} if recursive else None
+        return self._get(f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{tree_sha}", params=params)
+
+    def get_git_blob(self, owner: str, repo: str, file_sha: str) -> dict:
+        return self._get(f"{GITHUB_API}/repos/{owner}/{repo}/git/blobs/{file_sha}")
+
     def list_issues(self, owner: str, repo: str, state: str = "all") -> list:
         return self._get_paginated(
             f"{GITHUB_API}/repos/{owner}/{repo}/issues",

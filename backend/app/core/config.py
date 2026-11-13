@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     GITHUB_APP_CLIENT_ID: str = ""
     GITHUB_APP_CLIENT_SECRET: str = ""
     GITHUB_TOKEN: str = ""
+    GITHUB_TREE_MAX_BYTES: int = 250000
+    GITHUB_TREE_MAX_FILES: int = 40
+    CREDENTIAL_ENCRYPTION_KEY: str = ""
 
     # ── LLM Provider ─────────────────────────────────────────
     LLM_PROVIDER: str = "gemini"
@@ -61,8 +64,27 @@ class Settings(BaseSettings):
     LLM_RECORD_EXCERPT_CHAR_LIMIT: int = 1200
 
     # ── Document Storage ──────────────────────────────────────
+    STORAGE_BACKEND: str = "local"  # local | s3
     UPLOAD_DIR: str = "./storage/uploads"
     MAX_UPLOAD_SIZE_MB: int = 50
+    S3_ENDPOINT_URL: str = ""
+    S3_BUCKET: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_REGION: str = "auto"
+
+    # ── Tamper-Evident Compliance Signing ─────────────────────
+    EXPORT_SIGNING_PRIVATE_KEY_PEM: str = ""
+    EXPORT_SIGNING_KEY_PATH: str = "./storage/export_signing_key.pem"
+    EXPORT_SIGNING_KEY_ID: str = ""
+    EXPORT_TRUSTED_PUBLIC_KEY_FINGERPRINTS: str = ""
+
+    # ── Conversational RAG & Embeddings ───────────────────────
+    RAG_EMBEDDING_PROVIDER: str = "gemini"  # gemini | lexical_only
+    RAG_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    RAG_EMBEDDING_DIMENSION: int = 768
+    RAG_CHUNK_CHAR_LIMIT: int = 1200
+    RAG_CHUNK_OVERLAP: int = 150
 
     # ── Demo ──────────────────────────────────────────────────
     DEMO_USER_PASSWORD: str = "handoffscope-dev-2026"

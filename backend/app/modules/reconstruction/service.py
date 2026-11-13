@@ -184,13 +184,13 @@ def run_extraction(
         db.flush()
 
     # 1. Identify sources included in this case
-    case_sources = db.query(CaseSource).filter(CaseSource.case_id == case_id).all()
-    if case_sources:
-        source_ids = [cs.connected_source_id for cs in case_sources]
-    else:
-        # Fallback to all sources connected to the case's project
-        proj_sources = db.query(ConnectedSource).filter(ConnectedSource.project_id == case.project_id).all()
-        source_ids = [s.id for s in proj_sources]
+    from app.modules.evidence.clearance import resolve_case_source_ids
+
+    source_ids = resolve_case_source_ids(
+        db,
+        case_id=case_id,
+        project_id=case.project_id,
+    )
 
     if not source_ids:
         case.status = previous_status if previous_status != CaseStatus.RECONSTRUCTING else CaseStatus.DRAFT

@@ -95,7 +95,18 @@ def list_workspace_members(
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List all members of a workspace."""
+    """List all members of a workspace (workspace membership required)."""
+    requester_membership = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if not requester_membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
+
     memberships = (
         db.query(WorkspaceMembership)
         .filter(WorkspaceMembership.workspace_id == workspace_id)
@@ -127,6 +138,23 @@ def add_workspace_member(
 ):
     """Add a member to a workspace by email."""
     from app.db.enums import WorkspaceRole
+
+    requester_membership = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if not requester_membership or requester_membership.role not in (
+        WorkspaceRole.OWNER,
+        WorkspaceRole.ADMIN,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Workspace Owners or Admins can add workspace members",
+        )
 
     target_user = db.query(User).filter(User.email == body.email.strip()).first()
     if not target_user:

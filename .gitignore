@@ -44,9 +44,14 @@ docker-compose.override.yml
 alembic/versions/__pycache__/
 
 # Storage
+backend/storage/*
+!backend/storage/.gitkeep
+!backend/storage/uploads/
 backend/storage/uploads/*
 !backend/storage/uploads/.gitkeep
-storage/uploads/*
+backend/storage/*.pem
+storage/*
+!storage/.gitkeep
 
 # Test
 .pytest_cache/

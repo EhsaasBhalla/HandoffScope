@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.db.enums import JobType, ProcessingStatus
 from app.modules.documents.models import Document
 from app.modules.jobs.service import enqueue_job
-from app.storage.local_storage import LocalStorageBackend
+from app.storage.factory import get_storage_backend
 
 logger = logging.getLogger("handoffscope.documents")
 
@@ -34,8 +34,6 @@ EXT_TO_MIME = {
     ".txt": "text/plain",
     ".md": "text/markdown",
 }
-
-storage = LocalStorageBackend()
 
 
 def normalize_mime_type(filename: str | None, content_type: str | None) -> str:
@@ -111,8 +109,9 @@ def create_document(
     safe_name = f"{uuid.uuid4().hex}{ext}"
     storage_path = f"{project_id}/{safe_name}"
 
-    # Save to storage
-    storage.save(storage_path, file_data)
+    # Save via configured StorageBackend; roll back stored object if DB flush fails
+    backend = get_storage_backend()
+    saved_pointer = backend.save(storage_path, file_data)
 
     doc = Document(
         project_id=project_id,
@@ -120,13 +119,20 @@ def create_document(
         original_filename=filename,
         mime_type=canonical_mime,
         file_size=len(file_data),
-        storage_path=storage_path,
+        storage_path=saved_pointer,
         file_hash=file_hash,
         processing_status=ProcessingStatus.PENDING,
         uploaded_by_id=uploaded_by_id,
     )
-    db.add(doc)
-    db.flush()
+    try:
+        db.add(doc)
+        db.flush()
+    except Exception:
+        try:
+            backend.delete(saved_pointer)
+        except Exception:
+            pass
+        raise
 
     # Enqueue parsing job
     enqueue_job(

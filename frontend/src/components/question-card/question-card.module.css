@@ -1,0 +1,522 @@
+.card {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badgeGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.caseBadge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.packBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.statusBadge {
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.statusResolved {
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.statusAnswered {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.statusOpen {
+  background-color: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.priorityBadge {
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.priorityCritical {
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.priorityHigh {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.dateMeta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.whyBox {
+  background-color: var(--color-bg-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.linkedClaim {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.actorsRow {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.actorItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.promotionBanner {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--color-success-bg);
+  border: 1px solid var(--color-success);
+  font-size: 12px;
+  color: var(--color-success);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.dismissBannerBtn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.responsesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.responseCard {
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.responseCardAi {
+  border-color: var(--color-info);
+}
+
+.responseHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.responseBadges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.aiDraftBadge {
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-info-bg);
+  color: var(--color-info);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.humanBadge {
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.fallbackTag {
+  font-size: 10px;
+  color: var(--color-warning);
+  font-family: var(--font-mono);
+}
+
+.insufficientBadge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.conflictBadge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.reviewStateTag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+}
+
+.reviewAccepted {
+  color: var(--color-success);
+}
+
+.reviewRejected {
+  color: var(--color-error);
+}
+
+.reviewPending {
+  color: var(--color-warning);
+}
+
+.responseBody {
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--color-text-primary);
+}
+
+.limitationsBox {
+  font-size: 11px;
+  color: var(--color-warning);
+  background-color: var(--color-warning-bg);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.conflictsBox {
+  font-size: 11px;
+  color: var(--color-error);
+  background-color: var(--color-error-bg);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.conflictsList {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+.citationsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.citationBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-accent-text);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.citationBtn:hover {
+  border-color: var(--color-accent);
+}
+
+.citationBtnStale {
+  border-color: var(--color-warning);
+}
+
+.staleTag {
+  color: var(--color-warning);
+}
+
+.reviewNotes {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.inspectError {
+  font-size: 11px;
+  color: var(--color-error);
+}
+
+.actionError {
+  font-size: 12px;
+  color: var(--color-error);
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.inlineEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.amendEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-accent);
+}
+
+.editorLabel {
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+}
+
+.textareaInput {
+  padding: 8px;
+  background-color: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.textInput {
+  padding: 6px 8px;
+  background-color: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.editorActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.btnBase {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btnAiDraft {
+  border: 1px solid var(--color-info);
+  background-color: var(--color-info-bg);
+  color: var(--color-info);
+  font-weight: var(--weight-semibold);
+}
+
+.btnAiDraft:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.btnSecondary {
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background-color: var(--color-bg-hover);
+}
+
+.btnGhost {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background-color: var(--color-bg-hover);
+}
+
+.btnGhostMuted {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.btnPrimary {
+  border: none;
+  background-color: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-weight: var(--weight-semibold);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.btnSuccess {
+  border: none;
+  background-color: var(--color-success);
+  color: var(--color-text-inverse);
+  font-weight: var(--weight-semibold);
+}
+
+.btnDanger {
+  border: 1px solid var(--color-error);
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+/* Modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 22, 19, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  padding: 16px;
+}
+
+.modalDialog {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  max-width: 640px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalTitle {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modalCloseBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.modalMeta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.modalBody {
+  white-space: pre-wrap;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background-color: var(--color-bg-primary);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  margin: 0;
+}
+
+.externalRefLink {
+  font-size: 12px;
+  color: var(--color-accent-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

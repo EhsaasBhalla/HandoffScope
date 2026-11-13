@@ -9,10 +9,9 @@
   <img src="https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React" />
   <img src="https://img.shields.io/badge/SQLAlchemy-2.0-red?style=flat-square" alt="SQLAlchemy" />
   <img src="https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Redis-7.0-DC382D?style=flat-square&logo=redis&logoColor=white" alt="Redis" />
   <img src="https://img.shields.io/badge/Vite-6.0-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite" />
-  <img src="https://img.shields.io/badge/Tests-30%20Passed-brightgreen?style=flat-square" alt="Tests" />
-  <img src="https://img.shields.io/badge/Status-Phases%201--10%20Complete-blue?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/badge/Tests-61%20Passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Round%203%20Active-blue?style=flat-square" alt="Status" />
 </p>
 
 ---
@@ -43,30 +42,29 @@ HandoffScope treats engineering handovers as an **evidence-backed, permission-aw
 ```mermaid
 flowchart TD
     subgraph Frontend["Frontend (React 18 + Vite 6)"]
-        UI["CSS Modules & Design Tokens<br/>Warm Charcoal / Paper / Brass Accent"]
+        UI["CSS Modules & Corporate Tokens<br/>Warm Neutral / Forest Charcoal / Muted Teal"]
         Router["React Router v6 + Route Guards"]
         Query["TanStack React Query Cache"]
-        Client["httpClient (CSRF + Cookie JWT)"]
+        Client["httpClient (Auto-Refresh + CSRF + Cookie/Bearer Auth)"]
     end
 
     subgraph Backend["Backend (FastAPI + Python 3.12+)"]
         API["FastAPI REST API (/api/v1)"]
-        RBAC["9x30 RBAC Matrix Dependency"]
-        SM["Lifecycle State Machine"]
-        AI["Extraction Engine + Grounding Validator"]
-        Jobs["Background Job Queue"]
+        RBAC["9x30 RBAC Matrix + Shared Clearance Policy"]
+        SM["Dual-Axis Lifecycle & Freshness Engine"]
+        AI["Gemini 3.5/3.6 Cascade + Mock Provider"]
+        Jobs["In-Process ThreadPoolExecutor Jobs"]
     end
 
     subgraph Storage["Storage & Infrastructure"]
-        DB[("PostgreSQL 15 / SQLite")]
-        Queue[("Redis 7 + RQ Worker")]
-        Files["Local Storage / Uploads"]
+        DB[("PostgreSQL 15+ (Neon) / SQLite")]
+        Files["StorageBackend Abstraction (Local Disk / S3-R2 Ready)"]
     end
 
     UI --> Router --> Query --> Client --> API
     API --> RBAC --> SM --> DB
     API --> AI --> DB
-    API --> Jobs --> Queue
+    API --> Jobs --> DB
     Jobs --> Files
 ```
 
@@ -162,16 +160,16 @@ npm install
 npm run dev
 ```
 
-### Option B: Production Docker Compose
+### Option B: Docker Compose (PostgreSQL + Backend + Frontend)
 
 ```bash
-# Spin up PostgreSQL, Redis, Backend, Worker, and Frontend
+# Spin up PostgreSQL, FastAPI Backend (in-process ThreadPoolExecutor), and Frontend
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 ---
 
-## 🧪 Automated Test Suite (30 Tests Passing)
+## 🧪 Automated Test Suite (61 Tests Passing)
 
 The test suite covers unit and API integration tests:
 ```bash
@@ -192,6 +190,11 @@ python -m pytest tests/
 | `test_security.py` | Password hashing, JWT cookie security, CSRF protection |
 | `test_state_machine.py` | 16-transition lifecycle state machine & invariant checks |
 | `test_parsers.py` | Document ingestion (`.pdf`, `.docx`, `.md`) |
+| `test_r3_0_foundations.py` | Clearance policy, GitHub URL auto-linking & member RBAC hardening |
+| `test_r3_1_compliance_exports.py` | Signed compliance ZIP/PDF exports, Ed25519 verification & clearance filtering |
+| `test_r3_2_conversational_rag.py` | Snapshot-pinned conversational RAG assistant & restricted withholding |
+| `test_r3_3_connectors_and_tree.py` | GitLab, Jira, Linear connectors, tree indexing & suggested identity hints |
+| `test_r3_4_hardening.py` | SigV4 R2/S3 storage ACLs, GitHub/SSE security, redactor & claim delegation |
 
 ---
 
@@ -200,7 +203,7 @@ python -m pytest tests/
 - **Frontend:** Hosted on **Vercel** (`dist/` static SPA build with React Router rewrite rule).
 - **Backend:** Hosted on **Render** (FastAPI Web Service via Docker or native Python).
 - **Database:** Hosted on **Neon.tech** or **Render Managed PostgreSQL** (`DATABASE_URL=postgresql+psycopg2://...`).
-- **AI Models:** Deterministic offline **Mock Provider** (zero dependencies/downloads) or live cloud **Gemini 1.5 Flash / OpenAI GPT-4o**.
+- **AI Models:** Deterministic offline **Mock Provider** or Google Gemini REST cascade (`gemini-3.5-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `MockLLMProvider`).
 
 ---
 

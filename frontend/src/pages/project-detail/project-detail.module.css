@@ -456,15 +456,15 @@
 }
 
 .statusVerified {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
 }
 
 .statusSuggested {
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
 }
 
 .statusUnmatched {
@@ -474,7 +474,7 @@
 }
 
 .userSelect {
-  background-color: var(--color-bg-primary);
+  background-color: var(--color-bg-input);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
   padding: var(--space-xs) var(--space-sm);
@@ -485,34 +485,105 @@
 }
 
 .confirmBtn {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
   padding: var(--space-xs) var(--space-md);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .confirmBtn:hover {
-  background-color: rgba(16, 185, 129, 0.25);
+  background-color: var(--color-accent-subtle);
 }
 
 .rejectBtn {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background-color: var(--color-error-bg);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
   padding: var(--space-xs) var(--space-md);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .rejectBtn:hover {
-  background-color: rgba(239, 68, 68, 0.25);
+  opacity: 0.85;
+}
+
+.sourceItemRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.infoBanner {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  background-color: var(--color-info-bg);
+  border: 1px solid var(--color-info);
+  color: var(--color-info);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+}
+
+.errorBanner {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+}
+
+.addMemberBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.memberControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.roleSelectSmall {
+  background-color: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+}
+
+.removeMemberBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-error);
+  background: transparent;
+  cursor: pointer;
+}
+
+.removeMemberBtn:hover:not(:disabled) {
+  background-color: var(--color-error-bg);
+  border-color: var(--color-error);
 }
 

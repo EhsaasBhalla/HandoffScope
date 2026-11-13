@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db
+from app.core.dependencies import get_current_active_user, get_db, require_project_capability
+from app.db.enums import Sensitivity
 from app.modules.documents.models import Document
 from app.modules.documents.service import create_document, validate_upload
+from app.modules.evidence.clearance import has_restricted_clearance
 from app.modules.projects.models import Project
+from app.storage.factory import load_stored_bytes
 
 router = APIRouter(tags=["Documents"])
 
@@ -125,4 +128,36 @@ def get_document(
         page_count=doc.page_count,
         section_count=doc.section_count,
         created_at=doc.created_at.isoformat(),
+    )
+
+
+@router.get("/documents/{document_id}/download")
+def download_document_bytes(
+    document_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Stream stored document bytes after enforcing project membership and RESTRICTED clearance."""
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    require_project_capability(db, user, doc.project_id, "document.view")
+    if doc.sensitivity == Sensitivity.RESTRICTED:
+        if not has_restricted_clearance(db, user_id=user.id, project_id=doc.project_id, user=user):
+            raise HTTPException(status_code=403, detail="Access to restricted document requires elevated clearance")
+
+    try:
+        raw = load_stored_bytes(doc.storage_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Stored document object unavailable") from exc
+
+    safe_disp = (doc.original_filename or "document").replace('"', "_")
+    return Response(
+        content=raw,
+        media_type=doc.mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_disp}"',
+            "Cache-Control": "no-store",
+        },
     )

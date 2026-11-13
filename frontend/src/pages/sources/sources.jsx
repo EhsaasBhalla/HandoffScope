@@ -25,7 +25,17 @@ export default function SourcesPage() {
   const [importError, setImportError] = useState('');
   const [syncingSourceId, setSyncingSourceId] = useState(null);
   const [showAddRepo, setShowAddRepo] = useState(false);
+  const [connectorTab, setConnectorTab] = useState('GITHUB_REPO');
   const [repoSlugInput, setRepoSlugInput] = useState('');
+  const [gitlabPath, setGitlabPath] = useState('');
+  const [gitlabBaseUrl, setGitlabBaseUrl] = useState('https://gitlab.com');
+  const [gitlabToken, setGitlabToken] = useState('');
+  const [linearTeamKey, setLinearTeamKey] = useState('');
+  const [linearToken, setLinearToken] = useState('');
+  const [jiraSiteUrl, setJiraSiteUrl] = useState('');
+  const [jiraProjectKey, setJiraProjectKey] = useState('');
+  const [jiraEmail, setJiraEmail] = useState('');
+  const [jiraToken, setJiraToken] = useState('');
 
   // 1. Fetch workspaces and active project
   const { data: workspaces } = useQuery({
@@ -73,30 +83,82 @@ export default function SourcesPage() {
     },
   });
 
-  // Connect GitHub repo mutation
+  // Connect VCS / Tracker source mutation (GitHub, GitLab, Linear, Jira)
   const connectRepoMutation = useMutation({
-    mutationFn: (repoSlug) => {
-      const cleaned = repoSlug.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
-      const [owner, repo] = cleaned.split('/');
-      if (!owner || !repo) {
-        throw new Error('Enter repository in "owner/repo" format (e.g. pydantic/pydantic)');
+    mutationFn: () => {
+      if (connectorTab === 'GITHUB_REPO') {
+        const cleaned = repoSlugInput.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+        const [owner, repo] = cleaned.split('/');
+        if (!owner || !repo) {
+          throw new Error('Enter GitHub repository in "owner/repo" format (e.g. pydantic/pydantic)');
+        }
+        return sourceApi.connectSource(projectId, {
+          source_type: 'GITHUB_REPO',
+          name: `${owner}/${repo}`,
+          external_id: `${owner}/${repo}`,
+          config: { owner, repo },
+        });
       }
-      return sourceApi.connectSource(projectId, {
-        source_type: 'GITHUB_REPO',
-        name: `${owner}/${repo}`,
-        external_id: `${owner}/${repo}`,
-        config: { owner, repo },
-      });
+      if (connectorTab === 'GITLAB_REPO') {
+        const cleanPath = gitlabPath.trim().replace(/^https?:\/\/gitlab\.com\//, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+        if (!cleanPath.includes('/')) {
+          throw new Error('Enter GitLab path as "group/project"');
+        }
+        return sourceApi.connectSource(projectId, {
+          source_type: 'GITLAB_REPO',
+          name: cleanPath,
+          external_id: cleanPath,
+          config: {
+            project_path: cleanPath,
+            base_url: gitlabBaseUrl.trim() || 'https://gitlab.com',
+            ...(gitlabToken.trim() ? { private_token: gitlabToken.trim() } : {}),
+          },
+        });
+      }
+      if (connectorTab === 'LINEAR_TEAM') {
+        const tk = linearTeamKey.trim().toUpperCase();
+        if (!tk || !linearToken.trim()) {
+          throw new Error('Linear Team Key and API key / OAuth token are required');
+        }
+        return sourceApi.connectSource(projectId, {
+          source_type: 'LINEAR_TEAM',
+          name: `Linear Team ${tk}`,
+          external_id: tk,
+          config: { team_key: tk, access_token: linearToken.trim() },
+        });
+      }
+      if (connectorTab === 'JIRA_PROJECT') {
+        const site = jiraSiteUrl.trim().replace(/\/+$/, '');
+        const pkey = jiraProjectKey.trim().toUpperCase();
+        if (!site.startsWith('https://') || !pkey || !jiraEmail.trim() || !jiraToken.trim()) {
+          throw new Error('Jira requires https:// site URL, project key, email, and API token');
+        }
+        return sourceApi.connectSource(projectId, {
+          source_type: 'JIRA_PROJECT',
+          name: `Jira ${pkey}`,
+          external_id: `${site}/${pkey}`,
+          config: { site_url: site, project_key: pkey, email: jiraEmail.trim(), api_token: jiraToken.trim() },
+        });
+      }
+      throw new Error('Unsupported source provider');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setRepoSlugInput('');
+      setGitlabPath('');
+      setGitlabToken('');
+      setLinearTeamKey('');
+      setLinearToken('');
+      setJiraSiteUrl('');
+      setJiraProjectKey('');
+      setJiraEmail('');
+      setJiraToken('');
       setShowAddRepo(false);
       setImportError('');
     },
     onError: (err) => {
-      setImportError(err.data?.detail || err.message || 'Failed to connect repository');
+      setImportError(err.data?.detail || err.message || 'Failed to connect source');
     },
   });
 
@@ -253,8 +315,8 @@ export default function SourcesPage() {
             <GitBranch size={24} />
           </div>
           <div className={styles.cardHeaderInfo}>
-            <h3>GitHub Integration</h3>
-            <p>Connect any public or app-authorized repository to ingest issues, pull requests, reviews, and commits.</p>
+            <h3>Multi-Platform VCS &amp; Issue Tracker Integrations</h3>
+            <p>Connect GitHub repositories (with code-tree indexing), GitLab projects, Linear teams, or Jira Cloud projects.</p>
           </div>
           <div className={styles.statusIndicator}>
             <button
@@ -262,7 +324,7 @@ export default function SourcesPage() {
               onClick={() => setShowAddRepo((v) => !v)}
             >
               <Plus size={14} />
-              <span>Connect Repo</span>
+              <span>Connect Source</span>
             </button>
             {githubStatus?.connected ? (
               <span className={styles.connectedBadge}>
@@ -277,21 +339,141 @@ export default function SourcesPage() {
         </div>
 
         {showAddRepo && (
-          <div style={{ padding: 'var(--space-md) var(--space-lg)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="owner/repo or https://github.com/owner/repo"
-              value={repoSlugInput}
-              onChange={(e) => setRepoSlugInput(e.target.value)}
-              style={{ flex: 1, minWidth: '240px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', fontSize: 'var(--text-sm)' }}
-            />
-            <button
-              className={styles.importTriggerBtn}
-              disabled={!repoSlugInput.trim() || connectRepoMutation.isPending}
-              onClick={() => connectRepoMutation.mutate(repoSlugInput)}
-            >
-              {connectRepoMutation.isPending ? 'Connecting…' : 'Save Source'}
-            </button>
+          <div style={{ padding: 'var(--space-md) var(--space-lg)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'GITHUB_REPO', label: 'GitHub Repo' },
+                { id: 'GITLAB_REPO', label: 'GitLab Repo' },
+                { id: 'LINEAR_TEAM', label: 'Linear Team' },
+                { id: 'JIRA_PROJECT', label: 'Jira Cloud Project' },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setConnectorTab(t.id)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 600,
+                    border: `1px solid ${connectorTab === t.id ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    backgroundColor: connectorTab === t.id ? 'var(--color-accent-subtle)' : 'var(--color-bg-primary)',
+                    color: connectorTab === t.id ? 'var(--color-accent-text)' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {connectorTab === 'GITHUB_REPO' && (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="owner/repo or https://github.com/owner/repo"
+                  value={repoSlugInput}
+                  onChange={(e) => setRepoSlugInput(e.target.value)}
+                  style={{ flex: 1, minWidth: '240px' }}
+                />
+                <button
+                  className={styles.importTriggerBtn}
+                  disabled={!repoSlugInput.trim() || connectRepoMutation.isPending}
+                  onClick={() => connectRepoMutation.mutate()}
+                >
+                  {connectRepoMutation.isPending ? 'Connecting…' : 'Save GitHub Source'}
+                </button>
+              </div>
+            )}
+
+            {connectorTab === 'GITLAB_REPO' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="group/project (e.g. gitlab-org/gitlab-foss)"
+                  value={gitlabPath}
+                  onChange={(e) => setGitlabPath(e.target.value)}
+                />
+                <input
+                  type="url"
+                  placeholder="Base URL (https://gitlab.com)"
+                  value={gitlabBaseUrl}
+                  onChange={(e) => setGitlabBaseUrl(e.target.value)}
+                />
+                <input
+                  type="password"
+                  placeholder="Private Token (optional for public repos)"
+                  value={gitlabToken}
+                  onChange={(e) => setGitlabToken(e.target.value)}
+                />
+                <button
+                  className={styles.importTriggerBtn}
+                  disabled={!gitlabPath.trim() || connectRepoMutation.isPending}
+                  onClick={() => connectRepoMutation.mutate()}
+                >
+                  {connectRepoMutation.isPending ? 'Connecting…' : 'Save GitLab Source'}
+                </button>
+              </div>
+            )}
+
+            {connectorTab === 'LINEAR_TEAM' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Team Key (e.g. ENG)"
+                  value={linearTeamKey}
+                  onChange={(e) => setLinearTeamKey(e.target.value)}
+                />
+                <input
+                  type="password"
+                  placeholder="Linear API Key or OAuth Bearer Token"
+                  value={linearToken}
+                  onChange={(e) => setLinearToken(e.target.value)}
+                />
+                <button
+                  className={styles.importTriggerBtn}
+                  disabled={!linearTeamKey.trim() || !linearToken.trim() || connectRepoMutation.isPending}
+                  onClick={() => connectRepoMutation.mutate()}
+                >
+                  {connectRepoMutation.isPending ? 'Connecting…' : 'Save Linear Source'}
+                </button>
+              </div>
+            )}
+
+            {connectorTab === 'JIRA_PROJECT' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="url"
+                  placeholder="https://your-org.atlassian.net"
+                  value={jiraSiteUrl}
+                  onChange={(e) => setJiraSiteUrl(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Project Key (e.g. PLAT)"
+                  value={jiraProjectKey}
+                  onChange={(e) => setJiraProjectKey(e.target.value)}
+                />
+                <input
+                  type="email"
+                  placeholder="Atlassian Account Email"
+                  value={jiraEmail}
+                  onChange={(e) => setJiraEmail(e.target.value)}
+                />
+                <input
+                  type="password"
+                  placeholder="Jira API Token (stored encrypted)"
+                  value={jiraToken}
+                  onChange={(e) => setJiraToken(e.target.value)}
+                />
+                <button
+                  className={styles.importTriggerBtn}
+                  disabled={!jiraSiteUrl.trim() || !jiraProjectKey.trim() || !jiraEmail.trim() || !jiraToken.trim() || connectRepoMutation.isPending}
+                  onClick={() => connectRepoMutation.mutate()}
+                >
+                  {connectRepoMutation.isPending ? 'Connecting…' : 'Save Jira Source'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -426,7 +608,7 @@ export default function SourcesPage() {
                             <span
                               style={{
                                 fontWeight: 600,
-                                color: run.status === 'FAILED' ? 'var(--color-danger)' : 'var(--color-text-secondary)',
+                                color: run.status === 'FAILED' ? 'var(--color-error)' : run.status === 'PARTIAL' ? 'var(--color-warning)' : 'var(--color-text-secondary)',
                               }}
                             >
                               Last sync: {run.status}
@@ -448,9 +630,9 @@ export default function SourcesPage() {
                             Counts: fetched {run.records_fetched} · imported {run.records_created} · updated {run.records_updated} · skipped {run.records_skipped ?? 0}
                           </span>
                         )}
-                        {run?.status === 'FAILED' && run?.error_message && (
-                          <span style={{ color: 'var(--color-danger)' }}>
-                            Error: {run.error_message}
+                        {(run?.status === 'FAILED' || run?.status === 'PARTIAL') && run?.error_message && (
+                          <span style={{ color: run.status === 'FAILED' ? 'var(--color-error)' : 'var(--color-warning)' }}>
+                            {run.status === 'PARTIAL' ? 'Partial note: ' : 'Error: '}{run.error_message}
                           </span>
                         )}
                       </div>

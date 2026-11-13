@@ -25,16 +25,16 @@
 .submitBtn {
   width: 100%;
   padding: var(--space-md);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+  background-color: var(--color-accent);
   color: var(--color-text-inverse);
   font-size: var(--text-base);
   font-weight: var(--weight-semibold);
   border-radius: var(--radius-md);
-  transition: opacity var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .submitBtn:hover:not(:disabled) {
-  opacity: 0.9;
+  background-color: var(--color-accent-hover);
 }
 
 .submitBtn:disabled {

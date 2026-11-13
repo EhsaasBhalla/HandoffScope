@@ -17,4 +17,8 @@ export const recipientApi = {
     httpClient.post(`/api/v1/responsibility-assignments/${assignmentId}/decline`, {
       reason,
     }),
+  delegateClaim: (claimId, data) =>
+    httpClient.post(`/api/v1/recipients/claims/${claimId}/delegate`, data),
+  revokeDelegation: (assignmentId) =>
+    httpClient.post(`/api/v1/responsibility-assignments/${assignmentId}/revoke`),
 };

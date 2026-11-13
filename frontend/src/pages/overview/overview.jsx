@@ -267,7 +267,7 @@ export default function OverviewPage() {
                 >
                   <AlertTriangle
                     size={18}
-                    color={item.severity === 'high' ? '#ef4444' : '#f59e0b'}
+                    color={item.severity === 'high' ? 'var(--color-error)' : 'var(--color-warning)'}
                   />
                   <div style={{ flex: 1 }}>
                     <div className={styles.attentionTitle}>{item.title}</div>

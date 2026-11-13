@@ -19,11 +19,9 @@ from app.modules.documents.models import Document
 from app.modules.ingestion.models import SourceRecord
 from app.modules.jobs.service import complete_job, fail_job, update_job_progress
 from app.modules.sources.models import ConnectedSource
-from app.storage.local_storage import LocalStorageBackend
+from app.storage.factory import load_stored_bytes
 
 logger = logging.getLogger("handoffscope.worker.tasks")
-
-storage = LocalStorageBackend()
 
 
 def parse_document_task(job_id: str) -> None:
@@ -58,9 +56,9 @@ def parse_document_task(job_id: str) -> None:
         update_job_progress(db, job.id, current=0, total=3, message="Loading file")
         db.commit()
 
-        # Load file
+        # Load file via unified storage loader (local or R2/S3)
         try:
-            file_data = storage.load(doc.storage_path)
+            file_data = load_stored_bytes(doc.storage_path)
         except FileNotFoundError:
             doc.processing_status = ProcessingStatus.FAILED
             fail_job(db, job.id, error_message="File not found in storage")

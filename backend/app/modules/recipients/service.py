@@ -9,8 +9,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.events import publish_case_event
 from app.core.exceptions import ForbiddenError
 from app.db.enums import (
     CaseParticipantRole,
@@ -23,6 +25,12 @@ from app.db.enums import (
     WorkspaceRole,
 )
 from app.modules.audit.service import create_audit_event
+from app.modules.evidence.clearance import (
+    RESTRICTED_EVIDENCE_PLACEHOLDER,
+    get_restricted_claim_ids,
+    has_restricted_clearance,
+)
+from app.modules.sharing.redactor import redact_secrets_inline
 from app.modules.evidence.models import ClaimEvidence
 from app.modules.handover_cases.models import CaseParticipant, HandoverCase
 from app.modules.projects.models import Project, ProjectMembership
@@ -120,6 +128,12 @@ def _to_assignment_out(a: ResponsibilityAssignment) -> ResponsibilityAssignmentO
         status=status_str,
         responded_at=a.acceptance.responded_at if a.acceptance else None,
         decline_reason=a.acceptance.decline_reason if a.acceptance else None,
+        claim_id=a.claim_id,
+        claim_title=a.claim.title if a.claim else None,
+        delegated_from_user_id=a.delegated_from_user_id,
+        delegated_from_name=a.delegated_from.display_name if a.delegated_from else None,
+        delegation_note=a.delegation_note,
+        revoked_at=a.revoked_at,
     )
 
 
@@ -144,7 +158,19 @@ def list_successor_cases(db: Session, *, user_id: uuid.UUID) -> list[SuccessorCa
     )
     participant_case_ids = {c[0] for c in participant_cases}
 
-    all_case_ids = grant_case_ids | participant_case_ids
+    # 3. Cases via active pack/claim ResponsibilityAssignment
+    assigned_cases = (
+        db.query(TransferPack.case_id)
+        .join(ResponsibilityAssignment, ResponsibilityAssignment.transfer_pack_id == TransferPack.id)
+        .filter(
+            ResponsibilityAssignment.assigned_user_id == user_id,
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .all()
+    )
+    assigned_case_ids = {c[0] for c in assigned_cases}
+
+    all_case_ids = grant_case_ids | participant_case_ids | assigned_case_ids
     if not all_case_ids:
         return []
 
@@ -193,6 +219,8 @@ def list_successor_cases(db: Session, *, user_id: uuid.UUID) -> list[SuccessorCa
             .filter(
                 ResponsibilityAssignment.assigned_user_id == user_id,
                 ResponsibilityAssignment.transfer_pack_id.in_([p.id for p in packs_db]) if packs_db else False,
+                ResponsibilityAssignment.claim_id.is_(None),
+                ResponsibilityAssignment.revoked_at.is_(None),
             )
             .count()
         )
@@ -291,14 +319,21 @@ def build_recipient_projection(
         .order_by(TransferPack.sort_order.asc(), TransferPack.created_at.asc())
         .all()
     )
-    assignments = (
+    live_pack_ids = [p.id for p in live_packs]
+    assignments_q = (
         db.query(ResponsibilityAssignment)
         .filter(
             ResponsibilityAssignment.assigned_user_id == user_id,
-            ResponsibilityAssignment.transfer_pack_id.in_([p.id for p in live_packs]) if live_packs else False,
+            ResponsibilityAssignment.transfer_pack_id.in_(live_pack_ids) if live_pack_ids else False,
+            ResponsibilityAssignment.revoked_at.is_(None),
         )
-        .all()
     )
+    if current_version:
+        assignments_q = assignments_q.filter(
+            ResponsibilityAssignment.handover_version_id == current_version.id
+        )
+    all_user_active_assignments = assignments_q.all()
+    assignments = [a for a in all_user_active_assignments if a.claim_id is None]
     assignment_map = {a.transfer_pack_id: a for a in assignments}
     responsibilities_out = [_to_assignment_out(a) for a in assignments]
 
@@ -330,8 +365,48 @@ def build_recipient_projection(
         .first()
         is not None
     ) if proj_for_ws else False
-    if not (active_grant or assignments or is_case_participant or is_elevated_viewer or is_ws_admin):
+    if not (active_grant or all_user_active_assignments or is_case_participant or is_elevated_viewer or is_ws_admin):
         raise ForbiddenError("You do not have access to view this successor handover projection.")
+
+    claim_assignments_q = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.transfer_pack_id.in_(live_pack_ids) if live_pack_ids else False,
+            ResponsibilityAssignment.claim_id.isnot(None),
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+    )
+    if current_version:
+        claim_assignments_q = claim_assignments_q.filter(
+            ResponsibilityAssignment.handover_version_id == current_version.id
+        )
+    if not (is_elevated_viewer or is_ws_admin):
+        owned_pack_ids = {a.transfer_pack_id for a in assignments}
+        claim_filters = [
+            ResponsibilityAssignment.assigned_user_id == user_id,
+            ResponsibilityAssignment.delegated_from_user_id == user_id,
+        ]
+        if owned_pack_ids:
+            claim_filters.append(ResponsibilityAssignment.transfer_pack_id.in_(owned_pack_ids))
+        claim_assignments_q = claim_assignments_q.filter(or_(*claim_filters))
+    claim_assignments_out = [_to_assignment_out(a) for a in claim_assignments_q.order_by(ResponsibilityAssignment.assigned_at.desc()).all()]
+
+    eligible_members = (
+        db.query(ProjectMembership, User)
+        .join(User, User.id == ProjectMembership.user_id)
+        .filter(ProjectMembership.project_id == case.project_id, User.is_active.is_(True))
+        .order_by(User.display_name.asc())
+        .all()
+    )
+    eligible_delegates = [
+        {
+            "user_id": str(u.id),
+            "display_name": u.display_name,
+            "email": u.email,
+            "role": m.role.value if hasattr(m.role, "value") else str(m.role),
+        }
+        for m, u in eligible_members
+    ]
 
     projected_packs: list[SuccessorProjectedPackOut] = []
     next_actions: list[SuccessorProjectedClaimOut] = []
@@ -383,13 +458,20 @@ def build_recipient_projection(
                         else:
                             ex = ev.get("excerpt")
                             if ex:
-                                snippets.append(str(ex)[:120])
+                                snippets.append(redact_secrets_inline(str(ex)[:120]).redacted_text)
 
                     body_text = c.get("body_text")
                     original_body_text = c.get("original_body_text")
                     if is_withheld:
-                        body_text = "[RESTRICTED EVIDENCE — Access clearance required to inspect source details.]"
+                        body_text = RESTRICTED_EVIDENCE_PLACEHOLDER
                         original_body_text = None
+                    else:
+                        body_text = redact_secrets_inline(body_text).redacted_text if body_text else body_text
+                        original_body_text = (
+                            redact_secrets_inline(original_body_text).redacted_text
+                            if original_body_text
+                            else original_body_text
+                        )
 
                     claim_out = SuccessorProjectedClaimOut(
                         id=claim_uuid,
@@ -421,6 +503,12 @@ def build_recipient_projection(
                             "priority": str(c.get("priority") or "MEDIUM"),
                         })
 
+                live_pack = next((lp for lp in live_packs if lp.id == pack_uuid), None)
+                pack_status = (
+                    live_pack.status.value
+                    if live_pack and hasattr(live_pack.status, "value")
+                    else str(live_pack.status) if live_pack else str(p.get("status") or "APPROVED")
+                )
                 pack_assignment = assignment_map.get(pack_uuid)
                 projected_packs.append(
                     SuccessorProjectedPackOut(
@@ -428,7 +516,7 @@ def build_recipient_projection(
                         name=pack_name,
                         description=p.get("description"),
                         component_area=p.get("component_area"),
-                        status=str(p.get("status") or "APPROVED"),
+                        status=pack_status,
                         claims_count=len(projected_claims),
                         claims=projected_claims,
                         assignment=_to_assignment_out(pack_assignment) if pack_assignment else None,
@@ -441,7 +529,7 @@ def build_recipient_projection(
                         continue
                     item_copy = dict(u_item)
                     if item_copy.get("is_restricted"):
-                        item_copy["description"] = "[RESTRICTED EVIDENCE — Access clearance required to inspect source details.]"
+                        item_copy["description"] = RESTRICTED_EVIDENCE_PLACEHOLDER
                     item_copy.pop("is_restricted", None)
                     unfinished_items.append(item_copy)
 
@@ -476,7 +564,7 @@ def build_recipient_projection(
 
                     original_body_text = c.original_body_text
                     if is_withheld:
-                        body_text = "[RESTRICTED EVIDENCE — Access clearance required to inspect source details.]"
+                        body_text = RESTRICTED_EVIDENCE_PLACEHOLDER
                         original_body_text = None
 
                     claim_out = SuccessorProjectedClaimOut(
@@ -551,7 +639,7 @@ def build_recipient_projection(
                         snippets.append(ev.excerpt[:120])
                 original_body_text = c.original_body_text
                 if is_withheld:
-                    body_text = "[RESTRICTED EVIDENCE — Access clearance required to inspect source details.]"
+                    body_text = RESTRICTED_EVIDENCE_PLACEHOLDER
                     original_body_text = None
                 claim_out = SuccessorProjectedClaimOut(
                     id=c.id,
@@ -646,6 +734,8 @@ def build_recipient_projection(
         approved_at=current_version.approved_at if current_version else None,
         approved_by_name=approved_by_name,
         responsibilities=responsibilities_out,
+        claim_assignments=claim_assignments_out,
+        eligible_delegates=eligible_delegates,
         transfer_packs=projected_packs,
         next_actions=next_actions,
         unfinished_items=unfinished_items,
@@ -656,6 +746,7 @@ def build_recipient_projection(
             "accepted_packs": accepted_p,
             "declined_packs": declined_p,
             "pending_packs": pending_p,
+            "claim_assignments_count": len(claim_assignments_out),
             "next_actions_count": len(next_actions),
             "access_blockers_count": len(access_blockers),
         },
@@ -763,6 +854,11 @@ def acknowledge_handover(
 
     db.commit()
     db.refresh(ack)
+    publish_case_event(
+        case_id=case.id,
+        event_type="case.acknowledged",
+        entity_id=str(ack.id),
+    )
     return ack
 
 
@@ -801,12 +897,14 @@ def assign_responsibility(
     if not assignee:
         raise ValueError("Assignee user not found")
 
-    # Check if assignment already exists for this pack & user
+    # Check if pack-level assignment already exists for this pack & user
     existing = (
         db.query(ResponsibilityAssignment)
         .filter(
             ResponsibilityAssignment.transfer_pack_id == transfer_pack_id,
             ResponsibilityAssignment.assigned_user_id == assigned_user_id,
+            ResponsibilityAssignment.claim_id.is_(None),
+            ResponsibilityAssignment.revoked_at.is_(None),
         )
         .first()
     )
@@ -849,6 +947,367 @@ def assign_responsibility(
 
     db.commit()
     db.refresh(assignment)
+    publish_case_event(
+        case_id=pack.case_id,
+        event_type="responsibility.updated",
+        entity_id=str(assignment.id),
+    )
+    return assignment
+
+
+def _recompute_pack_and_case_transfer_state(
+    db: Session,
+    *,
+    pack: TransferPack | None,
+    version_id: uuid.UUID | None,
+    actor_id: uuid.UUID,
+) -> None:
+    """Recalculate parent TransferPack status and HandoverCase status across active pack + claim assignments."""
+    if not pack or not version_id:
+        return
+
+    pack_active = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.transfer_pack_id == pack.id,
+            ResponsibilityAssignment.handover_version_id == version_id,
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .all()
+    )
+    pack_statuses = [
+        a.acceptance.status if a.acceptance else ResponsibilityAcceptanceStatus.PENDING_ACCEPTANCE
+        for a in pack_active
+    ]
+    if pack_statuses and all(s == ResponsibilityAcceptanceStatus.ACCEPTED for s in pack_statuses):
+        pack.status = TransferPackStatus.ACCEPTED
+    elif any(s in (ResponsibilityAcceptanceStatus.ACCEPTED, ResponsibilityAcceptanceStatus.DECLINED) for s in pack_statuses):
+        pack.status = TransferPackStatus.PARTIALLY_ACCEPTED
+    else:
+        pack.status = TransferPackStatus.APPROVED
+
+    case = pack.case
+    if not case:
+        return
+
+    all_version_active = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.handover_version_id == version_id,
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .all()
+    )
+    all_statuses = [
+        a.acceptance.status if a.acceptance else ResponsibilityAcceptanceStatus.PENDING_ACCEPTANCE
+        for a in all_version_active
+    ]
+    if all_statuses and all(s == ResponsibilityAcceptanceStatus.ACCEPTED for s in all_statuses):
+        if case.status != CaseStatus.TRANSFERRED:
+            case.status = CaseStatus.TRANSFERRED
+            version_obj = db.query(HandoverVersion).filter(HandoverVersion.id == version_id).first()
+            create_audit_event(
+                db,
+                actor_id=actor_id,
+                action="case.transferred",
+                entity_type="handover_case",
+                entity_id=case.id,
+                details={"version_number": version_obj.version_number if version_obj else 1},
+                summary=f"All responsibilities accepted! Case '{case.title}' officially transitioned to TRANSFERRED.",
+            )
+    elif all_statuses:
+        has_claim_delegation = any(a.claim_id is not None for a in all_version_active)
+        has_accepted = any(s == ResponsibilityAcceptanceStatus.ACCEPTED for s in all_statuses)
+        has_unaccepted = any(s != ResponsibilityAcceptanceStatus.ACCEPTED for s in all_statuses)
+        if case.status == CaseStatus.TRANSFERRED or (
+            has_unaccepted and (has_accepted or has_claim_delegation) and len(all_statuses) > 1
+        ):
+            if case.status in (
+                CaseStatus.APPROVED,
+                CaseStatus.SHARED,
+                CaseStatus.ACKNOWLEDGED,
+                CaseStatus.PARTIALLY_ACKNOWLEDGED,
+                CaseStatus.TRANSFERRED,
+            ):
+                case.status = CaseStatus.PARTIALLY_ACKNOWLEDGED
+
+
+def delegate_claim_responsibility(
+    db: Session,
+    *,
+    claim_id: uuid.UUID,
+    assigned_user_id: uuid.UUID,
+    delegated_by_user_id: uuid.UUID,
+    handover_version_id: Optional[uuid.UUID] = None,
+    note: Optional[str] = None,
+) -> ResponsibilityAssignment:
+    """Delegate an individual claim within an assigned pack to another eligible project member."""
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise ValueError("Claim not found")
+
+    pack = db.query(TransferPack).filter(TransferPack.id == claim.transfer_pack_id).first()
+    if not pack:
+        raise ValueError("Transfer Pack not found")
+
+    case = db.query(HandoverCase).filter(HandoverCase.id == pack.case_id).first()
+    if not case:
+        raise ValueError("Handover Case not found")
+
+    if handover_version_id:
+        version_obj = (
+            db.query(HandoverVersion)
+            .filter(HandoverVersion.id == handover_version_id, HandoverVersion.case_id == case.id)
+            .first()
+        )
+    else:
+        version_obj = (
+            db.query(HandoverVersion)
+            .filter(HandoverVersion.case_id == case.id, HandoverVersion.is_current.is_(True))
+            .first()
+        ) or (
+            db.query(HandoverVersion)
+            .filter(HandoverVersion.case_id == case.id)
+            .order_by(HandoverVersion.version_number.desc())
+            .first()
+        )
+    if not version_obj:
+        raise ValueError("No approved version found for this handover case")
+
+    if assigned_user_id == delegated_by_user_id:
+        raise ValueError("Cannot delegate a claim to yourself")
+
+    # Verify actor is active pack owner OR Project Lead OR Workspace Owner/Admin
+    owns_pack = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.transfer_pack_id == pack.id,
+            ResponsibilityAssignment.handover_version_id == version_obj.id,
+            ResponsibilityAssignment.assigned_user_id == delegated_by_user_id,
+            ResponsibilityAssignment.claim_id.is_(None),
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .first()
+        is not None
+    )
+    proj = db.query(Project).filter(Project.id == case.project_id).first()
+    is_lead = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == case.project_id,
+            ProjectMembership.user_id == delegated_by_user_id,
+            ProjectMembership.role == ProjectRole.LEAD,
+        )
+        .first()
+        is not None
+    )
+    is_ws_admin = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == proj.workspace_id,
+            WorkspaceMembership.user_id == delegated_by_user_id,
+            WorkspaceMembership.role.in_([WorkspaceRole.OWNER, WorkspaceRole.ADMIN]),
+        )
+        .first()
+        is not None
+    ) if proj else False
+    if not (owns_pack or is_lead or is_ws_admin):
+        raise ForbiddenError("Only the assigned pack owner, Project Lead, or Workspace Admin can delegate a claim")
+
+    # Verify target delegate is an active member of this project
+    delegate_user = db.query(User).filter(User.id == assigned_user_id, User.is_active.is_(True)).first()
+    if not delegate_user:
+        raise ValueError("Delegate user not found or inactive")
+    target_membership = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == case.project_id,
+            ProjectMembership.user_id == assigned_user_id,
+        )
+        .first()
+    )
+    if not target_membership:
+        raise ForbiddenError("Delegate must be an active member of this project")
+
+    # Target cannot already hold pack-level ownership for this pack
+    target_owns_pack = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.transfer_pack_id == pack.id,
+            ResponsibilityAssignment.handover_version_id == version_obj.id,
+            ResponsibilityAssignment.assigned_user_id == assigned_user_id,
+            ResponsibilityAssignment.claim_id.is_(None),
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .first()
+        is not None
+    )
+    if target_owns_pack:
+        raise ValueError("Target member already holds pack-level responsibility for this transfer pack")
+
+    # Prevent active duplicate delegation or sub-delegation cycles on the same claim
+    existing_claim_delegation = (
+        db.query(ResponsibilityAssignment)
+        .filter(
+            ResponsibilityAssignment.claim_id == claim.id,
+            ResponsibilityAssignment.handover_version_id == version_obj.id,
+            ResponsibilityAssignment.revoked_at.is_(None),
+        )
+        .first()
+    )
+    if existing_claim_delegation:
+        if existing_claim_delegation.assigned_user_id == assigned_user_id:
+            raise ValueError("Claim is already actively delegated to this member")
+        raise ValueError("This claim already has an active delegation; revoke it first before reassigning")
+
+    # Enforce restricted-evidence clearance before delegating a restricted claim
+    restricted_claim_ids = get_restricted_claim_ids(db, claim_ids=[claim.id])
+    snap = version_obj.snapshot_json if isinstance(version_obj.snapshot_json, dict) else {}
+    snap_restricted = False
+    for sp in snap.get("transfer_packs") or []:
+        if not isinstance(sp, dict):
+            continue
+        for sc in sp.get("claims") or []:
+            if isinstance(sc, dict) and str(sc.get("id")) == str(claim.id):
+                if any(isinstance(ev, dict) and ev.get("is_restricted") for ev in (sc.get("evidence") or [])):
+                    snap_restricted = True
+    if (claim.id in restricted_claim_ids or snap_restricted) and not has_restricted_clearance(
+        db, project_id=case.project_id, case_id=case.id, user_id=assigned_user_id
+    ):
+        raise ForbiddenError("Delegate lacks restricted-evidence clearance required for this claim")
+
+    assignment = ResponsibilityAssignment(
+        id=uuid.uuid4(),
+        transfer_pack_id=pack.id,
+        handover_version_id=version_obj.id,
+        claim_id=claim.id,
+        assigned_user_id=assigned_user_id,
+        assigned_by=delegated_by_user_id,
+        delegated_from_user_id=delegated_by_user_id,
+        delegation_note=note.strip() if note and note.strip() else None,
+        assigned_at=datetime.now(timezone.utc),
+    )
+    db.add(assignment)
+    db.flush()
+
+    acceptance = ResponsibilityAcceptance(
+        id=uuid.uuid4(),
+        responsibility_assignment_id=assignment.id,
+        user_id=assigned_user_id,
+        status=ResponsibilityAcceptanceStatus.PENDING_ACCEPTANCE,
+    )
+    db.add(acceptance)
+    db.flush()
+
+    _recompute_pack_and_case_transfer_state(
+        db,
+        pack=pack,
+        version_id=version_obj.id,
+        actor_id=delegated_by_user_id,
+    )
+
+    create_audit_event(
+        db,
+        actor_id=delegated_by_user_id,
+        action="responsibility.claim_delegated",
+        entity_type="responsibility_assignment",
+        entity_id=assignment.id,
+        details={
+            "claim_id": str(claim.id),
+            "claim_title": claim.title,
+            "transfer_pack_id": str(pack.id),
+            "assigned_user_id": str(delegate_user.id),
+            "assignee_name": delegate_user.display_name,
+        },
+        summary=f"Delegated claim '{claim.title[:60]}' to {delegate_user.display_name}",
+    )
+
+    db.commit()
+    db.refresh(assignment)
+    publish_case_event(
+        case_id=case.id,
+        event_type="responsibility.updated",
+        entity_id=str(assignment.id),
+    )
+    return assignment
+
+
+def revoke_claim_delegation(
+    db: Session,
+    *,
+    assignment_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> ResponsibilityAssignment:
+    """Revoke an active claim-level delegation while preserving audit history via revoked_at."""
+    assignment = db.query(ResponsibilityAssignment).filter(ResponsibilityAssignment.id == assignment_id).first()
+    if not assignment:
+        raise ValueError("Responsibility assignment not found")
+    if assignment.claim_id is None:
+        raise ValueError("Only claim-level delegations can be revoked")
+    if assignment.revoked_at is not None:
+        raise ValueError("Claim delegation is already revoked")
+
+    pack = assignment.transfer_pack
+    case = pack.case if pack else None
+    if not pack or not case:
+        raise ValueError("Parent handover case not found")
+
+    proj = db.query(Project).filter(Project.id == case.project_id).first()
+    is_lead = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == case.project_id,
+            ProjectMembership.user_id == user_id,
+            ProjectMembership.role == ProjectRole.LEAD,
+        )
+        .first()
+        is not None
+    )
+    is_ws_admin = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == proj.workspace_id,
+            WorkspaceMembership.user_id == user_id,
+            WorkspaceMembership.role.in_([WorkspaceRole.OWNER, WorkspaceRole.ADMIN]),
+        )
+        .first()
+        is not None
+    ) if proj else False
+
+    if user_id not in (assignment.delegated_from_user_id, assignment.assigned_by) and not (is_lead or is_ws_admin):
+        raise ForbiddenError("You do not have permission to revoke this claim delegation")
+
+    assignment.revoked_at = datetime.now(timezone.utc)
+    db.flush()
+
+    _recompute_pack_and_case_transfer_state(
+        db,
+        pack=pack,
+        version_id=assignment.handover_version_id,
+        actor_id=user_id,
+    )
+
+    create_audit_event(
+        db,
+        actor_id=user_id,
+        action="responsibility.claim_revoked",
+        entity_type="responsibility_assignment",
+        entity_id=assignment.id,
+        details={
+            "claim_id": str(assignment.claim_id),
+            "transfer_pack_id": str(pack.id),
+            "revoked_at": assignment.revoked_at.isoformat(),
+        },
+        summary=f"Revoked claim delegation '{assignment.claim.title[:60] if assignment.claim else assignment.claim_id}'",
+    )
+
+    db.commit()
+    db.refresh(assignment)
+    publish_case_event(
+        case_id=case.id,
+        event_type="responsibility.updated",
+        entity_id=str(assignment.id),
+    )
     return assignment
 
 
@@ -858,10 +1317,12 @@ def accept_responsibility(
     assignment_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> ResponsibilityAssignment:
-    """Successor formally accepts operational responsibility for an assigned pack."""
+    """Successor formally accepts operational responsibility for an assigned pack or delegated claim."""
     assignment = db.query(ResponsibilityAssignment).filter(ResponsibilityAssignment.id == assignment_id).first()
     if not assignment:
         raise ValueError("Responsibility assignment not found")
+    if assignment.revoked_at is not None:
+        raise ValueError("This responsibility assignment has been revoked")
 
     if assignment.assigned_user_id != user_id:
         raise ValueError("Only the assigned successor can accept this responsibility")
@@ -880,34 +1341,13 @@ def accept_responsibility(
     acceptance.responded_at = datetime.now(timezone.utc)
     acceptance.decline_reason = None
 
-    # Update Transfer Pack status
     pack = assignment.transfer_pack
-    if pack:
-        pack.status = TransferPackStatus.ACCEPTED
-
-    # Check all assignments for this case/version: if all accepted, transition case to TRANSFERRED!
-    case = pack.case if pack else None
-    if case and assignment.handover_version_id:
-        case_assignments = (
-            db.query(ResponsibilityAssignment)
-            .filter(ResponsibilityAssignment.handover_version_id == assignment.handover_version_id)
-            .all()
-        )
-        all_accepted = all(
-            a.acceptance and a.acceptance.status == ResponsibilityAcceptanceStatus.ACCEPTED
-            for a in case_assignments
-        )
-        if all_accepted and len(case_assignments) > 0:
-            case.status = CaseStatus.TRANSFERRED
-            create_audit_event(
-                db,
-                actor_id=user_id,
-                action="case.transferred",
-                entity_type="handover_case",
-                entity_id=case.id,
-                details={"version_number": assignment.version.version_number if assignment.version else 1},
-                summary=f"All responsibilities accepted! Case '{case.title}' officially transitioned to TRANSFERRED.",
-            )
+    _recompute_pack_and_case_transfer_state(
+        db,
+        pack=pack,
+        version_id=assignment.handover_version_id,
+        actor_id=user_id,
+    )
 
     create_audit_event(
         db,
@@ -915,12 +1355,25 @@ def accept_responsibility(
         action="responsibility.accepted",
         entity_type="responsibility_assignment",
         entity_id=assignment.id,
-        details={"transfer_pack_id": str(pack.id) if pack else None},
-        summary=f"Successor accepted responsibility for '{pack.name if pack else ''}'",
+        details={
+            "transfer_pack_id": str(pack.id) if pack else None,
+            "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
+        },
+        summary=(
+            f"Successor accepted delegated claim '{assignment.claim.title[:60] if assignment.claim else ''}'"
+            if assignment.claim_id
+            else f"Successor accepted responsibility for '{pack.name if pack else ''}'"
+        ),
     )
 
     db.commit()
     db.refresh(assignment)
+    if pack and pack.case_id:
+        publish_case_event(
+            case_id=pack.case_id,
+            event_type="responsibility.updated",
+            entity_id=str(assignment.id),
+        )
     return assignment
 
 
@@ -935,6 +1388,8 @@ def decline_responsibility(
     assignment = db.query(ResponsibilityAssignment).filter(ResponsibilityAssignment.id == assignment_id).first()
     if not assignment:
         raise ValueError("Responsibility assignment not found")
+    if assignment.revoked_at is not None:
+        raise ValueError("This responsibility assignment has been revoked")
 
     if assignment.assigned_user_id != user_id:
         raise ValueError("Only the assigned successor can decline this responsibility")
@@ -954,8 +1409,12 @@ def decline_responsibility(
     acceptance.decline_reason = reason
 
     pack = assignment.transfer_pack
-    if pack:
-        pack.status = TransferPackStatus.PARTIALLY_ACCEPTED
+    _recompute_pack_and_case_transfer_state(
+        db,
+        pack=pack,
+        version_id=assignment.handover_version_id,
+        actor_id=user_id,
+    )
 
     create_audit_event(
         db,
@@ -965,6 +1424,7 @@ def decline_responsibility(
         entity_id=assignment.id,
         details={
             "transfer_pack_id": str(pack.id) if pack else None,
+            "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "decline_reason": reason,
         },
         summary=f"Successor declined responsibility for '{pack.name if pack else ''}': {reason[:60]}",
@@ -972,4 +1432,10 @@ def decline_responsibility(
 
     db.commit()
     db.refresh(assignment)
+    if pack and pack.case_id:
+        publish_case_event(
+            case_id=pack.case_id,
+            event_type="responsibility.updated",
+            entity_id=str(assignment.id),
+        )
     return assignment

@@ -30,6 +30,12 @@ class AssignResponsibilityRequest(BaseModel):
     handover_version_id: Optional[uuid.UUID] = None
 
 
+class DelegateClaimRequest(BaseModel):
+    assigned_user_id: uuid.UUID
+    handover_version_id: Optional[uuid.UUID] = None
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
 class DeclineResponsibilityRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=1000)
 
@@ -50,6 +56,12 @@ class ResponsibilityAssignmentOut(BaseModel):
     status: str
     responded_at: Optional[datetime] = None
     decline_reason: Optional[str] = None
+    claim_id: Optional[uuid.UUID] = None
+    claim_title: Optional[str] = None
+    delegated_from_user_id: Optional[uuid.UUID] = None
+    delegated_from_name: Optional[str] = None
+    delegation_note: Optional[str] = None
+    revoked_at: Optional[datetime] = None
 
 
 class SuccessorProjectedClaimOut(BaseModel):
@@ -118,6 +130,8 @@ class SuccessorContinuationViewOut(BaseModel):
     # Core Continuation Pillars:
     # 1. "What am I taking over?"
     responsibilities: list[ResponsibilityAssignmentOut] = []
+    claim_assignments: list[ResponsibilityAssignmentOut] = []
+    eligible_delegates: list[dict[str, str]] = []
     transfer_packs: list[SuccessorProjectedPackOut] = []
 
     # 2. "What are my next actions?"
@@ -135,6 +149,7 @@ class SuccessorContinuationViewOut(BaseModel):
         "accepted_packs": 0,
         "declined_packs": 0,
         "pending_packs": 0,
+        "claim_assignments_count": 0,
         "next_actions_count": 0,
         "access_blockers_count": 0,
     }

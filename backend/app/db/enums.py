@@ -67,6 +67,9 @@ class CaseSyncStatus(str, enum.Enum):
 
 class SourceType(str, enum.Enum):
     GITHUB_REPO = "GITHUB_REPO"
+    GITLAB_REPO = "GITLAB_REPO"
+    JIRA_PROJECT = "JIRA_PROJECT"
+    LINEAR_TEAM = "LINEAR_TEAM"
     DOCUMENT_UPLOAD = "DOCUMENT_UPLOAD"
     SYNTHETIC_FIXTURE = "SYNTHETIC_FIXTURE"
 

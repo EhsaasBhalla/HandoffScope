@@ -258,7 +258,7 @@ export default function ReviewQueuePage() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span>Pending Review</span>
-            <Clock size={16} style={{ color: '#fbbf24' }} />
+            <Clock size={16} style={{ color: 'var(--color-warning)' }} />
           </div>
           <span className={`${styles.statValue} ${styles.statValuePending}`}>
             {summaryLoading ? '…' : queueSummary?.pending_review_count ?? 0}
@@ -268,7 +268,7 @@ export default function ReviewQueuePage() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span>Accepted</span>
-            <CheckCircle2 size={16} style={{ color: '#34d399' }} />
+            <CheckCircle2 size={16} style={{ color: 'var(--color-success)' }} />
           </div>
           <span className={`${styles.statValue} ${styles.statValueAccepted}`}>
             {summaryLoading
@@ -280,7 +280,7 @@ export default function ReviewQueuePage() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span>Clarifications</span>
-            <HelpCircle size={16} style={{ color: '#60a5fa' }} />
+            <HelpCircle size={16} style={{ color: 'var(--color-info)' }} />
           </div>
           <span className={`${styles.statValue} ${styles.statValueClarify}`}>
             {summaryLoading ? '…' : queueSummary?.needs_clarification_count ?? 0}
@@ -290,7 +290,7 @@ export default function ReviewQueuePage() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span>Rejected</span>
-            <XCircle size={16} style={{ color: '#f87171' }} />
+            <XCircle size={16} style={{ color: 'var(--color-error)' }} />
           </div>
           <span className={`${styles.statValue} ${styles.statValueRejected}`}>
             {summaryLoading ? '…' : queueSummary?.rejected_count ?? 0}
@@ -300,7 +300,7 @@ export default function ReviewQueuePage() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span>Unresolved Questions</span>
-            <HelpCircle size={16} style={{ color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? '#fbbf24' : '#34d399' }} />
+            <HelpCircle size={16} style={{ color: (queueSummary?.open_questions_count || 0) + (queueSummary?.awaiting_question_review_count || 0) > 0 ? 'var(--color-warning)' : 'var(--color-success)' }} />
           </div>
           <span className={styles.statValue}>
             {summaryLoading

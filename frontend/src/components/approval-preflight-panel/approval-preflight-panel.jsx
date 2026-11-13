@@ -54,11 +54,11 @@ export function ApprovalPreflightPanel({
       >
         <div className={styles.readinessInfo}>
           {queueSummary.can_approve ? (
-            <CheckCircle2 size={24} className={styles.readinessIconReady} style={{ color: '#34d399', flexShrink: 0 }} />
+            <CheckCircle2 size={24} className={styles.readinessIconReady} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
           ) : queueSummary.has_critical_blockers ? (
-            <ShieldAlert size={24} style={{ color: '#f87171', flexShrink: 0 }} />
+            <ShieldAlert size={24} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
           ) : (
-            <AlertTriangle size={24} className={styles.readinessIconBlocked} style={{ color: '#fbbf24', flexShrink: 0 }} />
+            <AlertTriangle size={24} className={styles.readinessIconBlocked} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />
           )}
 
           <div style={{ flex: 1 }}>
@@ -79,19 +79,19 @@ export function ApprovalPreflightPanel({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
                 {criticalBlockers.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#f87171', textTransform: 'uppercase', marginBottom: '2px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-error)', textTransform: 'uppercase', marginBottom: '2px' }}>
                       Critical Blockers (Cannot Be Overridden)
                     </div>
                     <ul className={styles.blockingList}>
                       {criticalBlockers.map((b, idx) => (
-                        <li key={idx} style={{ color: '#fca5a5' }}>{b.message}</li>
+                        <li key={idx} style={{ color: 'var(--color-error)' }}>{b.message}</li>
                       ))}
                     </ul>
                   </div>
                 )}
                 {nonCriticalBlockers.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', marginBottom: '2px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-warning)', textTransform: 'uppercase', marginBottom: '2px' }}>
                       Non-Critical Blockers (Lead Override Eligible)
                     </div>
                     <ul className={styles.blockingList}>
@@ -133,8 +133,9 @@ export function ApprovalPreflightPanel({
             <button
               className={styles.approveBtn}
               style={{
-                background: 'linear-gradient(135deg, #d97706, #b45309)',
-                borderColor: 'rgba(245, 158, 11, 0.5)',
+                backgroundColor: 'var(--color-warning)',
+                color: 'var(--color-text-inverse)',
+                borderColor: 'var(--color-warning)',
               }}
               onClick={() => setModalMode('override')}
               disabled={isSubmitting}
@@ -238,7 +239,7 @@ export function ApprovalPreflightPanel({
                   }}
                 />
                 {overrideReason.trim().length > 0 && overrideReason.trim().length < 10 && (
-                  <span style={{ fontSize: '11px', color: '#f87171' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--color-error)' }}>
                     Please provide at least 10 characters of justification.
                   </span>
                 )}
@@ -289,7 +290,7 @@ export function ApprovalPreflightPanel({
                 onClick={handleConfirm}
                 style={
                   modalMode === 'override'
-                    ? { background: 'linear-gradient(135deg, #d97706, #b45309)' }
+                    ? { backgroundColor: 'var(--color-warning)', color: 'var(--color-text-inverse)' }
                     : undefined
                 }
               >

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import {
-  AlertTriangle,
   Ban,
   CheckCircle2,
   ExternalLink,
+  FileEdit,
   FileText,
   FolderKanban,
   HelpCircle,
@@ -13,11 +13,11 @@ import {
   User,
   X,
   XCircle,
-  FileEdit,
 } from 'lucide-react';
 import { usePermissions } from '../../hooks/usePermissions';
 import { sourceApi } from '../../api/source.api';
 import { evidenceApi } from '../../api/evidence.api';
+import styles from './question-card.module.css';
 
 export function QuestionThreadCard({
   q,
@@ -145,134 +145,78 @@ export function QuestionThreadCard({
     }
   };
 
+  const statusBadgeClass =
+    statusUpper === 'RESOLVED'
+      ? styles.statusResolved
+      : statusUpper === 'ANSWERED'
+      ? styles.statusAnswered
+      : styles.statusOpen;
+
+  const priorityBadgeClass =
+    q.priority === 'CRITICAL'
+      ? styles.priorityCritical
+      : q.priority === 'HIGH'
+      ? styles.priorityHigh
+      : '';
+
   return (
-    <div
-      style={{
-        backgroundColor: 'var(--color-bg-secondary)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        padding: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-      }}
-    >
+    <div className={styles.card}>
       {/* Top Badge Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+      <div className={styles.topBar}>
+        <div className={styles.badgeGroup}>
           {showCaseTag && q.case_title && (
-            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '999px', backgroundColor: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+            <span className={styles.caseBadge}>
               Case #{q.case_number || 1}: {q.case_title}
             </span>
           )}
           {q.transfer_pack_name && (
-            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '999px', backgroundColor: 'rgba(99, 102, 241, 0.14)', color: 'var(--color-accent-text)' }}>
-              <FolderKanban size={11} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />
+            <span className={styles.packBadge}>
+              <FolderKanban size={11} />
               {q.transfer_pack_name}
             </span>
           )}
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: '999px',
-              backgroundColor:
-                statusUpper === 'RESOLVED'
-                  ? 'rgba(16, 185, 129, 0.14)'
-                  : statusUpper === 'ANSWERED'
-                  ? 'rgba(245, 158, 11, 0.16)'
-                  : 'rgba(59, 130, 246, 0.14)',
-              color:
-                statusUpper === 'RESOLVED'
-                  ? '#34d399'
-                  : statusUpper === 'ANSWERED'
-                  ? '#fbbf24'
-                  : '#60a5fa',
-            }}
-          >
-            {q.status}
-          </span>
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              padding: '2px 8px',
-              borderRadius: '999px',
-              backgroundColor:
-                q.priority === 'CRITICAL'
-                  ? 'rgba(239, 68, 68, 0.16)'
-                  : q.priority === 'HIGH'
-                  ? 'rgba(245, 158, 11, 0.16)'
-                  : 'var(--color-bg-tertiary)',
-              color: q.priority === 'CRITICAL' ? '#f87171' : q.priority === 'HIGH' ? '#fbbf24' : 'var(--color-text-secondary)',
-            }}
-          >
-            {q.priority}
-          </span>
+          <span className={`${styles.statusBadge} ${statusBadgeClass}`}>{q.status}</span>
+          <span className={`${styles.priorityBadge} ${priorityBadgeClass}`}>{q.priority}</span>
         </div>
-        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-          {new Date(q.created_at).toLocaleDateString()}
-        </span>
+        <span className={styles.dateMeta}>{new Date(q.created_at).toLocaleDateString()}</span>
       </div>
 
       {/* Question Heading */}
-      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-        {q.question_text}
-      </h4>
+      <h4 className={styles.heading}>{q.question_text}</h4>
 
       {q.why_it_matters && (
-        <div
-          style={{
-            backgroundColor: 'var(--color-bg-primary)',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            borderLeft: '3px solid var(--color-accent)',
-            fontSize: '12px',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
+        <div className={styles.whyBox}>
           <strong>Why this matters:</strong> {q.why_it_matters}
         </div>
       )}
 
       {q.claim_title && (
-        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+        <div className={styles.linkedClaim}>
           Linked Claim: <strong>{q.claim_title}</strong>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--color-text-muted)', flexWrap: 'wrap' }}>
+      <div className={styles.actorsRow}>
         {q.created_by_name && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <span className={styles.actorItem}>
             <User size={12} /> Asked by {q.created_by_name}
           </span>
         )}
         {q.assigned_to_name && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <span className={styles.actorItem}>
             <HelpCircle size={12} /> Assigned to <strong>{q.assigned_to_name}</strong>
           </span>
         )}
       </div>
 
       {promotionBanner && (
-        <div
-          style={{
-            padding: '8px 12px',
-            borderRadius: '6px',
-            backgroundColor: 'rgba(16, 185, 129, 0.12)',
-            border: '1px solid rgba(16, 185, 129, 0.35)',
-            fontSize: '12px',
-            color: '#34d399',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
+        <div className={styles.promotionBanner}>
           <span>{promotionBanner.message}</span>
           <button
+            type="button"
             onClick={() => setPromotionBanner(null)}
-            style={{ background: 'transparent', border: 'none', color: '#34d399', cursor: 'pointer' }}
+            className={styles.dismissBannerBtn}
+            aria-label="Dismiss notice"
           >
             <X size={13} />
           </button>
@@ -281,111 +225,74 @@ export function QuestionThreadCard({
 
       {/* Responses Thread */}
       {q.responses && q.responses.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+        <div className={styles.responsesList}>
           {q.responses.map((resp) => {
             const revUpper = (resp.review_state || '').toUpperCase();
             const isAi = !!resp.is_ai_generated;
             const isInsufficient = resp.answer_status === 'insufficient';
             const isConflicting = resp.answer_status === 'conflicting';
-            const isFallback = resp.provenance?.fallback_used || resp.ai_provider === 'mock' || resp.ai_provider === 'mock_fallback';
+            const isFallback =
+              resp.provenance?.fallback_used ||
+              resp.ai_provider === 'mock' ||
+              resp.ai_provider === 'mock_fallback';
+
+            const reviewClass =
+              revUpper === 'ACCEPTED' || revUpper === 'AMENDED'
+                ? styles.reviewAccepted
+                : revUpper === 'REJECTED'
+                ? styles.reviewRejected
+                : styles.reviewPending;
 
             return (
               <div
                 key={resp.id}
-                style={{
-                  backgroundColor: 'var(--color-bg-primary)',
-                  border: `1px solid ${isAi ? 'rgba(99, 102, 241, 0.35)' : 'var(--color-border)'}`,
-                  borderRadius: '6px',
-                  padding: '12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                }}
+                className={`${styles.responseCard} ${isAi ? styles.responseCardAi : ''}`}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <div className={styles.responseHeader}>
+                  <div className={styles.responseBadges}>
                     {isAi ? (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '999px',
-                          backgroundColor: 'rgba(99, 102, 241, 0.16)',
-                          color: '#a5b4fc',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
+                      <span className={styles.aiDraftBadge}>
                         <Sparkles size={11} />
                         {revUpper === 'PENDING_REVIEW'
-                          ? 'AI-suggested draft — awaiting review'
-                          : `AI Draft (${revUpper})`}
+                          ? 'Suggested draft — awaiting review'
+                          : `Draft (${revUpper})`}
                       </span>
                     ) : (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '999px',
-                          backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                          color: '#6ee7b7',
-                        }}
-                      >
+                      <span className={styles.humanBadge}>
                         Human-Confirmed • {resp.respondent_name || 'Engineer'}
                       </span>
                     )}
 
                     {isAi && isFallback && (
-                      <span style={{ fontSize: '10px', color: '#fbbf24', fontFamily: 'var(--font-mono)' }}>
+                      <span className={styles.fallbackTag}>
                         [{resp.ai_provider}: {resp.ai_model}]
                       </span>
                     )}
                     {isInsufficient && (
-                      <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' }}>
-                        Insufficient Evidence
-                      </span>
+                      <span className={styles.insufficientBadge}>Insufficient Evidence</span>
                     )}
                     {isConflicting && (
-                      <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
-                        Conflicting Sources
-                      </span>
+                      <span className={styles.conflictBadge}>Conflicting Sources</span>
                     )}
                   </div>
 
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-mono)',
-                      fontWeight: 600,
-                      color:
-                        revUpper === 'ACCEPTED' || revUpper === 'AMENDED'
-                          ? '#34d399'
-                          : revUpper === 'REJECTED'
-                          ? '#f87171'
-                          : '#fbbf24',
-                    }}
-                  >
+                  <span className={`${styles.reviewStateTag} ${reviewClass}`}>
                     {resp.review_state}
                   </span>
                 </div>
 
-                <div style={{ fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--color-text-primary)' }}>
-                  {resp.response_text}
-                </div>
+                <div className={styles.responseBody}>{resp.response_text}</div>
 
                 {resp.limitations && (
-                  <div style={{ fontSize: '11px', color: '#fbbf24', backgroundColor: 'rgba(245, 158, 11, 0.08)', padding: '6px 8px', borderRadius: '4px' }}>
+                  <div className={styles.limitationsBox}>
                     <strong>Limitations / Staleness:</strong> {resp.limitations}
                   </div>
                 )}
 
                 {Array.isArray(resp.conflicts) && resp.conflicts.length > 0 && (
-                  <div style={{ fontSize: '11px', color: '#fca5a5', backgroundColor: 'rgba(239, 68, 68, 0.08)', padding: '6px 8px', borderRadius: '4px' }}>
+                  <div className={styles.conflictsBox}>
                     <strong>Source Conflicts:</strong>
-                    <ul style={{ margin: '4px 0 0', paddingLeft: '16px' }}>
+                    <ul className={styles.conflictsList}>
                       {resp.conflicts.map((c, idx) => (
                         <li key={idx}>{c}</li>
                       ))}
@@ -394,38 +301,25 @@ export function QuestionThreadCard({
                 )}
 
                 {Array.isArray(resp.evidence_references) && resp.evidence_references.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '2px' }}>
+                  <div className={styles.citationsRow}>
                     {resp.evidence_references.map((ref, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => handleOpenCitation(ref)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          fontSize: '11px',
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          backgroundColor: 'var(--color-bg-secondary)',
-                          border: `1px solid ${ref.is_stale ? 'rgba(245, 158, 11, 0.45)' : 'var(--color-border)'}`,
-                          color: 'var(--color-accent-text)',
-                          cursor: 'pointer',
-                        }}
+                        className={`${styles.citationBtn} ${ref.is_stale ? styles.citationBtnStale : ''}`}
                         title={ref.excerpt || 'Inspect source evidence'}
                       >
                         <FileText size={11} />
                         <span>{ref.title || ref.locator || ref.source_id.slice(0, 8)}</span>
-                        {ref.is_stale && <span style={{ color: '#fbbf24' }}>(Potentially Stale)</span>}
+                        {ref.is_stale && <span className={styles.staleTag}>(Potentially Stale)</span>}
                       </button>
                     ))}
                   </div>
                 )}
 
                 {resp.review_notes && (
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                    Review note: {resp.review_notes}
-                  </div>
+                  <div className={styles.reviewNotes}>Review note: {resp.review_notes}</div>
                 )}
               </div>
             );
@@ -433,46 +327,35 @@ export function QuestionThreadCard({
         </div>
       )}
 
-      {inspectError && (
-        <div style={{ fontSize: '11px', color: '#f87171' }}>{inspectError}</div>
-      )}
-      {aiError && (
-        <div style={{ fontSize: '12px', color: '#f87171', backgroundColor: 'rgba(239, 68, 68, 0.08)', padding: '6px 10px', borderRadius: '4px' }}>
-          {aiError}
-        </div>
-      )}
+      {inspectError && <div className={styles.inspectError}>{inspectError}</div>}
+      {aiError && <div className={styles.actionError}>{aiError}</div>}
 
       {/* Inline Human Answer Box */}
       {isAnswering && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+        <div className={styles.inlineEditor}>
           <textarea
             rows={3}
             placeholder="Write a human-confirmed answer citing relevant runbooks, PRs, or operational steps..."
             value={answerText}
             onChange={(e) => setAnswerText(e.target.value)}
-            style={{
-              padding: '8px',
-              backgroundColor: 'var(--color-bg-primary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '6px',
-              color: 'var(--color-text-primary)',
-              fontSize: '13px',
-            }}
+            className={styles.textareaInput}
           />
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <div className={styles.editorActions}>
             <button
+              type="button"
               onClick={() => {
                 setIsAnswering(false);
                 setAnswerText('');
               }}
-              style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: '12px' }}
+              className={`${styles.btnBase} ${styles.btnGhost}`}
             >
               Cancel
             </button>
             <button
+              type="button"
               disabled={isSubmittingHuman || !answerText.trim()}
               onClick={handleHumanSubmit}
-              style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: 'var(--color-accent)', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              className={`${styles.btnBase} ${styles.btnPrimary}`}
             >
               {isSubmittingHuman ? 'Submitting...' : 'Submit Human Answer'}
             </button>
@@ -482,29 +365,31 @@ export function QuestionThreadCard({
 
       {/* Inline Edit & Accept (Amend) Box */}
       {amendingResp && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', borderRadius: '6px', backgroundColor: 'var(--color-bg-primary)', border: '1px solid var(--color-accent)' }}>
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>Edit &amp; Accept Answer</label>
+        <div className={styles.amendEditor}>
+          <label className={styles.editorLabel}>Edit &amp; Accept Answer</label>
           <textarea
             rows={4}
             value={amendedText}
             onChange={(e) => setAmendedText(e.target.value)}
-            style={{ padding: '8px', backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', borderRadius: '6px', color: 'var(--color-text-primary)', fontSize: '13px' }}
+            className={styles.textareaInput}
           />
           <input
             type="text"
             placeholder="Review note (optional)"
             value={amendNotes}
             onChange={(e) => setAmendNotes(e.target.value)}
-            style={{ padding: '6px 8px', backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', borderRadius: '6px', color: 'var(--color-text-primary)', fontSize: '12px' }}
+            className={styles.textInput}
           />
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <div className={styles.editorActions}>
             <button
+              type="button"
               onClick={() => setAmendingResp(null)}
-              style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: '12px', cursor: 'pointer' }}
+              className={`${styles.btnBase} ${styles.btnGhost}`}
             >
               Cancel
             </button>
             <button
+              type="button"
               disabled={isReviewing || !amendedText.trim()}
               onClick={() =>
                 handleReviewAction('amend', {
@@ -512,7 +397,7 @@ export function QuestionThreadCard({
                   notes: amendNotes.trim() || undefined,
                 })
               }
-              style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              className={`${styles.btnBase} ${styles.btnSuccess}`}
             >
               {isReviewing ? 'Saving...' : 'Save Amended Answer & Accept'}
             </button>
@@ -521,32 +406,20 @@ export function QuestionThreadCard({
       )}
 
       {/* Actions Row */}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', paddingTop: '4px' }}>
+      <div className={styles.actionsRow}>
         {canGenerateAi && (
           <button
             type="button"
             disabled={isGeneratingAi}
             onClick={handleGenerateClick}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid rgba(99, 102, 241, 0.4)',
-              backgroundColor: 'rgba(99, 102, 241, 0.14)',
-              color: '#a5b4fc',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: isGeneratingAi ? 'wait' : 'pointer',
-            }}
+            className={`${styles.btnBase} ${styles.btnAiDraft}`}
           >
             <Sparkles size={13} />
             {isGeneratingAi
               ? 'Generating Grounded Draft…'
               : aiError
-              ? 'Retry AI Draft'
-              : 'Generate AI Draft'}
+              ? 'Retry Draft'
+              : 'Generate Evidence Draft'}
           </button>
         )}
 
@@ -554,18 +427,7 @@ export function QuestionThreadCard({
           <button
             type="button"
             onClick={() => setIsAnswering(true)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'var(--color-bg-primary)',
-              color: 'var(--color-text-primary)',
-              fontSize: '12px',
-              cursor: 'pointer',
-            }}
+            className={`${styles.btnBase} ${styles.btnSecondary}`}
           >
             <MessageSquare size={12} />
             {q.responses?.length > 0 ? 'Add Human Answer' : 'Answer Question'}
@@ -578,19 +440,7 @@ export function QuestionThreadCard({
               type="button"
               disabled={isReviewing}
               onClick={() => handleReviewAction('accept')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: '#10b981',
-                color: '#fff',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className={`${styles.btnBase} ${styles.btnSuccess}`}
             >
               <CheckCircle2 size={12} /> Accept Answer
             </button>
@@ -601,18 +451,7 @@ export function QuestionThreadCard({
                 setAmendingResp(latestResp);
                 setAmendedText(latestResp.response_text || '');
               }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-bg-primary)',
-                color: 'var(--color-text-primary)',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
+              className={`${styles.btnBase} ${styles.btnSecondary}`}
             >
               <FileEdit size={12} /> Edit &amp; Accept
             </button>
@@ -620,18 +459,7 @@ export function QuestionThreadCard({
               type="button"
               disabled={isReviewing}
               onClick={() => handleReviewAction('reject', { notes: 'Needs further verification.' })}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(239, 68, 68, 0.35)',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                color: '#f87171',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
+              className={`${styles.btnBase} ${styles.btnDanger}`}
             >
               <XCircle size={12} /> Reject / Request Revision
             </button>
@@ -642,19 +470,7 @@ export function QuestionThreadCard({
           <button
             type="button"
             onClick={() => onTransitionStatus(q.id, 'OPEN')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: 'var(--color-accent)',
-              color: '#fff',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            className={`${styles.btnBase} ${styles.btnPrimary}`}
           >
             <CheckCircle2 size={12} /> Publish Question
           </button>
@@ -664,18 +480,7 @@ export function QuestionThreadCard({
           <button
             type="button"
             onClick={() => onTransitionStatus(q.id, 'OPEN')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'transparent',
-              color: 'var(--color-text-secondary)',
-              fontSize: '12px',
-              cursor: 'pointer',
-            }}
+            className={`${styles.btnBase} ${styles.btnGhost}`}
           >
             <RotateCcw size={12} /> Reopen Question
           </button>
@@ -685,18 +490,7 @@ export function QuestionThreadCard({
           <button
             type="button"
             onClick={() => onTransitionStatus(q.id, 'DISMISSED')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'transparent',
-              color: 'var(--color-text-muted)',
-              fontSize: '12px',
-              cursor: 'pointer',
-            }}
+            className={`${styles.btnBase} ${styles.btnGhostMuted}`}
           >
             <Ban size={12} /> Dismiss
           </button>
@@ -706,63 +500,33 @@ export function QuestionThreadCard({
       {/* Citation Drilldown Modal */}
       {inspectSource && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1100,
-            padding: '16px',
-          }}
+          className={styles.modalBackdrop}
           onClick={() => setInspectSource(null)}
         >
           <div
-            style={{
-              backgroundColor: 'var(--color-bg-secondary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '10px',
-              padding: '20px',
-              maxWidth: '640px',
-              width: '100%',
-              maxHeight: '80vh',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-            }}
+            className={styles.modalDialog}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '16px' }}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>
                 {inspectLoading ? 'Loading Source Details…' : inspectSource.title || 'Source Record'}
               </h3>
               <button
+                type="button"
                 onClick={() => setInspectSource(null)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+                className={styles.modalCloseBtn}
+                aria-label="Close source details"
               >
                 <X size={18} />
               </button>
             </div>
             {!inspectLoading && (
               <>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                <div className={styles.modalMeta}>
                   {inspectSource.meta}
                   {inspectSource.locator ? ` • Locator: ${inspectSource.locator}` : ''}
                 </div>
-                <pre
-                  style={{
-                    whiteSpace: 'pre-wrap',
-                    fontFamily: 'var(--font-sans)',
-                    fontSize: '13px',
-                    backgroundColor: 'var(--color-bg-primary)',
-                    padding: '12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--color-border)',
-                    margin: 0,
-                  }}
-                >
+                <pre className={styles.modalBody}>
                   {inspectSource.body || 'No body content.'}
                 </pre>
                 {inspectSource.url && (
@@ -770,7 +534,7 @@ export function QuestionThreadCard({
                     href={inspectSource.url}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ fontSize: '12px', color: 'var(--color-accent-text)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    className={styles.externalRefLink}
                   >
                     Open Original External Reference <ExternalLink size={12} />
                   </a>
