@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ShieldCheck,
@@ -15,9 +15,17 @@ import styles from './audit-log.module.css';
 
 export default function AuditLogPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
   const [expandedRow, setExpandedRow] = useState(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const {
     data: events,
@@ -25,12 +33,12 @@ export default function AuditLogPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['audit-events', entityFilter, actionFilter, searchTerm],
+    queryKey: ['audit-events', entityFilter, actionFilter, debouncedSearch],
     queryFn: () =>
       auditApi.getEvents({
         entity_type: entityFilter || undefined,
         action: actionFilter || undefined,
-        search: searchTerm || undefined,
+        search: debouncedSearch || undefined,
         limit: 100,
       }),
   });

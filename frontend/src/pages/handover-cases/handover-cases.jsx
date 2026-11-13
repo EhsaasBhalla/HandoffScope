@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { FileStack, Plus, AlertTriangle, ArrowRight } from 'lucide-react';
@@ -41,12 +41,15 @@ export default function HandoverCasesPage() {
     enabled: !!projects && projects.length > 0,
   });
 
-  const filteredCases = cases?.filter((c) => {
-    if (selectedProjectId !== 'ALL' && c.project_id !== selectedProjectId) return false;
-    if (statusFilter === 'ALL') return true;
-    if (statusFilter === 'BLOCKED') return c.is_blocked;
-    return c.status === statusFilter;
-  });
+  const filteredCases = useMemo(() => {
+    if (!Array.isArray(cases)) return [];
+    return cases.filter((c) => {
+      if (selectedProjectId !== 'ALL' && c.project_id !== selectedProjectId) return false;
+      if (statusFilter === 'ALL') return true;
+      if (statusFilter === 'BLOCKED') return c.is_blocked;
+      return c.status === statusFilter;
+    });
+  }, [cases, selectedProjectId, statusFilter]);
 
   return (
     <div className={styles.container}>

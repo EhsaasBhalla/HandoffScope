@@ -52,24 +52,24 @@ export default function QuestionsPage() {
         const pRes = await httpClient.get(`/api/v1/workspaces/${wsId}/projects`);
         const allCases = [];
         if (Array.isArray(pRes)) {
-          for (const p of pRes) {
+          const casePromises = pRes.map(async (p) => {
             try {
               const cRes = await httpClient.get(`/api/v1/projects/${p.id}/cases`);
-              if (Array.isArray(cRes)) {
-                allCases.push(...cRes);
-              }
-            } catch (_) {}
-          }
+              return Array.isArray(cRes) ? cRes : [];
+            } catch (_) {
+              return [];
+            }
+          });
+          const results = await Promise.all(casePromises);
+          allCases.push(...results.flat());
         }
         setCases(allCases);
-        if (allCases.length > 0 && !selectedCaseId) {
-          setSelectedCaseId(allCases[0].id);
-        }
+        setSelectedCaseId((prev) => prev || (allCases[0]?.id || ''));
       }
     } catch (err) {
       console.error('Failed to load cases:', err);
     }
-  }, [selectedCaseId]);
+  }, []);
 
   useEffect(() => {
     loadQuestions();
@@ -114,7 +114,7 @@ export default function QuestionsPage() {
     }
   }
 
-  async function handleAnswerSubmit(questionId, text) {
+  const handleAnswerSubmit = useCallback(async (questionId, text) => {
     try {
       await questionApi.submitResponse(questionId, { response_text: text });
       loadQuestions();
@@ -122,15 +122,15 @@ export default function QuestionsPage() {
       alert('Failed to submit answer: ' + (err.data?.detail || err.message));
       throw err;
     }
-  }
+  }, [loadQuestions]);
 
-  async function handleGenerateAiAnswer(questionId) {
+  const handleGenerateAiAnswer = useCallback(async (questionId) => {
     const updated = await questionApi.generateAiAnswer(questionId);
     loadQuestions();
     return updated;
-  }
+  }, [loadQuestions]);
 
-  async function handleReviewResponse(questionId, payload) {
+  const handleReviewResponse = useCallback(async (questionId, payload) => {
     try {
       const updated = await questionApi.reviewResponse(questionId, payload);
       loadQuestions();
@@ -139,16 +139,16 @@ export default function QuestionsPage() {
       alert('Failed to review answer: ' + (err.data?.detail || err.data?.error?.message || err.message));
       throw err;
     }
-  }
+  }, [loadQuestions]);
 
-  async function handleTransitionQuestion(questionId, newStatus) {
+  const handleTransitionQuestion = useCallback(async (questionId, newStatus) => {
     try {
       await questionApi.updateQuestion(questionId, { status: newStatus });
       loadQuestions();
     } catch (err) {
       alert('Failed to update question status: ' + (err.data?.detail || err.message));
     }
-  }
+  }, [loadQuestions]);
 
   const filteredQuestions = useMemo(() => {
     if (!Array.isArray(questions)) return [];

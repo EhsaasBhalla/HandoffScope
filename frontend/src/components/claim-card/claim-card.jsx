@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   CheckSquare,
@@ -27,7 +27,7 @@ import { ReviewStateBadge } from '../review-state-badge/review-state-badge';
 import { EvidenceCard } from '../evidence-card/evidence-card';
 import styles from './claim-card.module.css';
 
-export function ClaimCard({
+function ClaimCardComponent({
   claim,
   availablePacks = [],
   onMoveClaim,
@@ -582,4 +582,5 @@ export function ClaimCard({
   );
 }
 
+export const ClaimCard = memo(ClaimCardComponent);
 export default ClaimCard;

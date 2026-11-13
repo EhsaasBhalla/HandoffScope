@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import { CheckCircle2, HelpCircle, AlertTriangle, AlertCircle } from 'lucide-react';
 import styles from './evidence-state-badge.module.css';
 
-export function EvidenceStateBadge({ state }) {
+function EvidenceStateBadgeComponent({ state }) {
   const norm = (state || 'UNKNOWN').toUpperCase();
 
   let className = styles.unknown;
@@ -30,4 +31,5 @@ export function EvidenceStateBadge({ state }) {
   );
 }
 
+export const EvidenceStateBadge = memo(EvidenceStateBadgeComponent);
 export default EvidenceStateBadge;

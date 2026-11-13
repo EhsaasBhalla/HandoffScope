@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   GitCommit,
   GitPullRequest,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react';
 import styles from './evidence-card.module.css';
 
-export function EvidenceCard({ evidence }) {
+function EvidenceCardComponent({ evidence }) {
   if (!evidence) return null;
 
   const type = (evidence.source_type || 'COMMIT').toUpperCase();
@@ -101,4 +102,5 @@ export function EvidenceCard({ evidence }) {
   );
 }
 
+export const EvidenceCard = memo(EvidenceCardComponent);
 export default EvidenceCard;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import {
   Ban,
   CheckCircle2,
@@ -19,7 +19,7 @@ import { sourceApi } from '../../api/source.api';
 import { evidenceApi } from '../../api/evidence.api';
 import styles from './question-card.module.css';
 
-export function QuestionThreadCard({
+function QuestionThreadCardComponent({
   q,
   onSubmitAnswer,
   onGenerateAiAnswer,
@@ -603,3 +603,6 @@ export function QuestionThreadCard({
     </div>
   );
 }
+
+export const QuestionThreadCard = memo(QuestionThreadCardComponent);
+export default QuestionThreadCard;

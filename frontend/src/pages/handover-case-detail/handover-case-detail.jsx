@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -97,7 +97,7 @@ export default function HandoverCaseDetailPage() {
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
   const [reconNotice, setReconNotice] = useState(null);
 
-  // Compliance Export & Verification state (Round 3)
+  // Compliance Export & Verification state
   const [exportBusyKey, setExportBusyKey] = useState('');
   const [exportError, setExportError] = useState('');
   const [verifyResult, setVerifyResult] = useState(null);
@@ -239,6 +239,26 @@ export default function HandoverCaseDetailPage() {
       alert(err.data?.detail || err.message || 'Failed to update claim');
     },
   });
+
+  // Stabilized claim handlers for memoized ClaimCard
+  const handleReviewClaim = useCallback(
+    (claimId, data) => reviewClaimMutation.mutateAsync({ claimId, data }),
+    [reviewClaimMutation]
+  );
+  const handleUpdateClaim = useCallback(
+    (claimId, data) => updateClaimMutation.mutateAsync({ claimId, data }),
+    [updateClaimMutation]
+  );
+  const handleMoveClaim = useCallback(
+    (claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId }),
+    [moveClaimMutation]
+  );
+
+  const filteredCaseClaims = useMemo(() => {
+    if (!Array.isArray(caseClaims)) return [];
+    if (reviewFilter === 'ALL') return caseClaims;
+    return caseClaims.filter((c) => c.review_state === reviewFilter);
+  }, [caseClaims, reviewFilter]);
 
   // Phase 9 Sharing & Responsibility Queries
   const { data: caseShares } = useQuery({
@@ -889,19 +909,17 @@ export default function HandoverCaseDetailPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                {caseClaims
-                  .filter((c) => reviewFilter === 'ALL' || c.review_state === reviewFilter)
-                  .map((claim) => (
-                    <ClaimCard
-                      key={claim.id}
-                      claim={claim}
-                      availablePacks={packs || []}
-                      enableReview={canReview}
-                      onReviewClaim={(claimId, data) => reviewClaimMutation.mutateAsync({ claimId, data })}
-                      onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
-                      onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
-                    />
-                  ))}
+                {filteredCaseClaims.map((claim) => (
+                  <ClaimCard
+                    key={claim.id}
+                    claim={claim}
+                    availablePacks={packs || []}
+                    enableReview={canReview}
+                    onReviewClaim={canReview ? handleReviewClaim : undefined}
+                    onUpdateClaim={handleUpdateClaim}
+                    onMoveClaim={handleMoveClaim}
+                  />
+                ))}
               </div>
             )}
           </div>

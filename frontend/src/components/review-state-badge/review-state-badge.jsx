@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import { Clock, CheckCircle2, Edit3, XCircle, HelpCircle } from 'lucide-react';
 import styles from './review-state-badge.module.css';
 
-export function ReviewStateBadge({ state }) {
+function ReviewStateBadgeComponent({ state }) {
   const norm = (state || 'PENDING_REVIEW').toUpperCase();
 
   let className = styles.pending;
@@ -34,4 +35,5 @@ export function ReviewStateBadge({ state }) {
   );
 }
 
+export const ReviewStateBadge = memo(ReviewStateBadgeComponent);
 export default ReviewStateBadge;

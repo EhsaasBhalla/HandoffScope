@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
@@ -222,6 +222,21 @@ export default function SuccessorViewPage() {
   }
 
   const v = continuationView;
+
+  const claimDelegationMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(v?.claim_assignments)) {
+      for (const ca of v.claim_assignments) {
+        map.set(ca.claim_id, ca);
+      }
+    }
+    return map;
+  }, [v?.claim_assignments]);
+
+  const eligibleTargets = useMemo(() => {
+    if (!Array.isArray(v?.eligible_delegates)) return [];
+    return v.eligible_delegates.filter((m) => m.user_id !== user?.id);
+  }, [v?.eligible_delegates, user?.id]);
 
   return (
     <div className={styles.page}>
@@ -587,8 +602,7 @@ export default function SuccessorViewPage() {
                       {isExpanded && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', marginTop: 'var(--space-sm)' }}>
                           {(pack.claims || []).map((c) => {
-                            const activeDelegation = (v.claim_assignments || []).find((ca) => ca.claim_id === c.id);
-                            const eligibleTargets = (v.eligible_delegates || []).filter((m) => m.user_id !== user?.id);
+                            const activeDelegation = claimDelegationMap.get(c.id);
                             const canDelegateClaim =
                               Boolean(assignment && assignment.assigned_user_id === user?.id) &&
                               !activeDelegation &&

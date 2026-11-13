@@ -1,6 +1,7 @@
+import { memo } from 'react';
 import styles from './freshness-badge.module.css';
 
-export function FreshnessBadge({ freshness }) {
+function FreshnessBadgeComponent({ freshness }) {
   const norm = (freshness || 'UNKNOWN_FRESHNESS').toUpperCase();
 
   let dotClass = styles.unknown;
@@ -25,4 +26,5 @@ export function FreshnessBadge({ freshness }) {
   );
 }
 
+export const FreshnessBadge = memo(FreshnessBadgeComponent);
 export default FreshnessBadge;

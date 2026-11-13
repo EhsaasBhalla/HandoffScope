@@ -74,14 +74,16 @@ export default function ReviewQueuePage() {
           const pRes = await httpClient.get(`/api/v1/workspaces/${wsId}/projects`);
           const all = [];
           if (Array.isArray(pRes)) {
-            for (const p of pRes) {
+            const casePromises = pRes.map(async (p) => {
               try {
                 const cRes = await httpClient.get(`/api/v1/projects/${p.id}/cases`);
-                if (Array.isArray(cRes)) {
-                  all.push(...cRes);
-                }
-              } catch (_) {}
-            }
+                return Array.isArray(cRes) ? cRes : [];
+              } catch (_) {
+                return [];
+              }
+            });
+            const results = await Promise.all(casePromises);
+            all.push(...results.flat());
           }
           setCasesList(all);
           const urlCase = searchParams.get('caseId');
@@ -228,6 +230,20 @@ export default function ReviewQueuePage() {
       return true;
     });
   }, [claims, reviewFilter, evidenceFilter, packFilter, searchText]);
+
+  // Stabilized claim handlers for memoized ClaimCard
+  const handleReviewClaim = useCallback(
+    (claimId, data) => reviewMutation.mutateAsync({ claimId, data }),
+    [reviewMutation]
+  );
+  const handleUpdateClaim = useCallback(
+    (claimId, data) => updateClaimMutation.mutateAsync({ claimId, data }),
+    [updateClaimMutation]
+  );
+  const handleMoveClaim = useCallback(
+    (claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId }),
+    [moveClaimMutation]
+  );
 
   // Bulk Selection Handlers
   const toggleSelectClaim = useCallback((claimId) => {
@@ -597,9 +613,9 @@ export default function ReviewQueuePage() {
                   claim={claim}
                   availablePacks={casePacks || []}
                   enableReview={true}
-                  onReviewClaim={(claimId, data) => reviewMutation.mutateAsync({ claimId, data })}
-                  onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
-                  onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
+                  onReviewClaim={handleReviewClaim}
+                  onUpdateClaim={handleUpdateClaim}
+                  onMoveClaim={handleMoveClaim}
                 />
               </div>
             </div>

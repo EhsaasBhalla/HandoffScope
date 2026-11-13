@@ -1,32 +1,71 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from './routeGuards';
 import { AppShell } from '../layouts/app-shell/app-shell';
 import { AuthLayout } from '../layouts/auth-layout/auth-layout';
 
+// ── Fallback Loader Component ────────────────────────────────
+function RouteFallback() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '260px',
+        width: '100%',
+        color: 'var(--color-text-muted, #64748b)',
+        fontSize: '13px',
+      }}
+    >
+      <div
+        style={{
+          width: '20px',
+          height: '20px',
+          border: '2px solid var(--color-border, #e2e8f0)',
+          borderTopColor: 'var(--color-accent, #2563eb)',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+          marginRight: '8px',
+        }}
+      />
+      <span>Loading view…</span>
+    </div>
+  );
+}
+
+function withSuspense(Component) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Component />
+    </Suspense>
+  );
+}
+
 // ── Page Imports (lazy-loaded for code splitting) ────────────
-import LoginPage from '../pages/login/login';
-import OverviewPage from '../pages/overview/overview';
-import ProjectsPage from '../pages/projects/projects';
-import ProjectDetailPage from '../pages/project-detail/project-detail';
-import HandoverCasesPage from '../pages/handover-cases/handover-cases';
-import HandoverCaseDetailPage from '../pages/handover-case-detail/handover-case-detail';
-import CreateHandoverCasePage from '../pages/create-handover-case/create-handover-case';
-import SourcesPage from '../pages/sources/sources';
-import TimelinePage from '../pages/timeline/timeline';
-import QuestionsPage from '../pages/questions/questions';
-import ReviewQueuePage from '../pages/review-queue/review-queue';
-import TransferPackDetailPage from '../pages/transfer-pack-detail/transfer-pack-detail';
-import PeopleAccessPage from '../pages/people-access/people-access';
-import SuccessorViewPage from '../pages/successor-view/successor-view';
-import AuditLogPage from '../pages/audit-log/audit-log';
-import SettingsPage from '../pages/settings/settings';
+const LoginPage = lazy(() => import('../pages/login/login'));
+const OverviewPage = lazy(() => import('../pages/overview/overview'));
+const ProjectsPage = lazy(() => import('../pages/projects/projects'));
+const ProjectDetailPage = lazy(() => import('../pages/project-detail/project-detail'));
+const HandoverCasesPage = lazy(() => import('../pages/handover-cases/handover-cases'));
+const HandoverCaseDetailPage = lazy(() => import('../pages/handover-case-detail/handover-case-detail'));
+const CreateHandoverCasePage = lazy(() => import('../pages/create-handover-case/create-handover-case'));
+const SourcesPage = lazy(() => import('../pages/sources/sources'));
+const TimelinePage = lazy(() => import('../pages/timeline/timeline'));
+const QuestionsPage = lazy(() => import('../pages/questions/questions'));
+const ReviewQueuePage = lazy(() => import('../pages/review-queue/review-queue'));
+const TransferPackDetailPage = lazy(() => import('../pages/transfer-pack-detail/transfer-pack-detail'));
+const PeopleAccessPage = lazy(() => import('../pages/people-access/people-access'));
+const SuccessorViewPage = lazy(() => import('../pages/successor-view/successor-view'));
+const AuditLogPage = lazy(() => import('../pages/audit-log/audit-log'));
+const SettingsPage = lazy(() => import('../pages/settings/settings'));
 
 export const router = createBrowserRouter([
   // ── Public routes ──────────────────────────────────────────
   {
     element: <AuthLayout />,
     children: [
-      { path: '/login', element: <LoginPage /> },
+      { path: '/login', element: withSuspense(LoginPage) },
     ],
   },
 
@@ -37,21 +76,21 @@ export const router = createBrowserRouter([
       {
         element: <AppShell />,
         children: [
-          { path: '/', element: <OverviewPage /> },
-          { path: '/projects', element: <ProjectsPage /> },
-          { path: '/projects/:projectId', element: <ProjectDetailPage /> },
-          { path: '/projects/:projectId/cases/new', element: <CreateHandoverCasePage /> },
-          { path: '/cases', element: <HandoverCasesPage /> },
-          { path: '/cases/:caseId', element: <HandoverCaseDetailPage /> },
-          { path: '/cases/:caseId/packs/:packId', element: <TransferPackDetailPage /> },
-          { path: '/sources', element: <SourcesPage /> },
-          { path: '/timeline', element: <TimelinePage /> },
-          { path: '/questions', element: <QuestionsPage /> },
-          { path: '/review', element: <ReviewQueuePage /> },
-          { path: '/people', element: <PeopleAccessPage /> },
-          { path: '/successor', element: <SuccessorViewPage /> },
-          { path: '/audit', element: <AuditLogPage /> },
-          { path: '/settings', element: <SettingsPage /> },
+          { path: '/', element: withSuspense(OverviewPage) },
+          { path: '/projects', element: withSuspense(ProjectsPage) },
+          { path: '/projects/:projectId', element: withSuspense(ProjectDetailPage) },
+          { path: '/projects/:projectId/cases/new', element: withSuspense(CreateHandoverCasePage) },
+          { path: '/cases', element: withSuspense(HandoverCasesPage) },
+          { path: '/cases/:caseId', element: withSuspense(HandoverCaseDetailPage) },
+          { path: '/cases/:caseId/packs/:packId', element: withSuspense(TransferPackDetailPage) },
+          { path: '/sources', element: withSuspense(SourcesPage) },
+          { path: '/timeline', element: withSuspense(TimelinePage) },
+          { path: '/questions', element: withSuspense(QuestionsPage) },
+          { path: '/review', element: withSuspense(ReviewQueuePage) },
+          { path: '/people', element: withSuspense(PeopleAccessPage) },
+          { path: '/successor', element: withSuspense(SuccessorViewPage) },
+          { path: '/audit', element: withSuspense(AuditLogPage) },
+          { path: '/settings', element: withSuspense(SettingsPage) },
         ],
       },
     ],

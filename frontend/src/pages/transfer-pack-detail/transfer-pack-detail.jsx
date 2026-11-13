@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -224,6 +224,22 @@ export default function TransferPackDetailPage() {
     },
   });
 
+  // Stabilized claim handlers for memoized ClaimCard
+  const handleMoveClaim = useCallback(
+    (claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId }),
+    [moveClaimMutation]
+  );
+
+  const handleUpdateClaim = useCallback(
+    (claimId, data) => updateClaimMutation.mutateAsync({ claimId, data }),
+    [updateClaimMutation]
+  );
+
+  const handleReviewClaim = useCallback(
+    (claimId, data) => reviewClaimMutation.mutateAsync({ claimId, data }),
+    [reviewClaimMutation]
+  );
+
   // Calculate evidence state breakdown
   const stats = useMemo(() => {
     const list = claims || [];
@@ -415,25 +431,10 @@ export default function TransferPackDetailPage() {
               key={claim.id}
               claim={claim}
               availablePacks={allPacks || []}
-              onMoveClaim={
-                canManagePack
-                  ? (claimId, targetPackId) =>
-                      moveClaimMutation.mutateAsync({ claimId, targetPackId })
-                  : undefined
-              }
-              onUpdateClaim={
-                canManagePack
-                  ? (claimId, data) =>
-                      updateClaimMutation.mutateAsync({ claimId, data })
-                  : undefined
-              }
+              onMoveClaim={canManagePack ? handleMoveClaim : undefined}
+              onUpdateClaim={canManagePack ? handleUpdateClaim : undefined}
               enableReview={canReview}
-              onReviewClaim={
-                canReview
-                  ? (claimId, data) =>
-                      reviewClaimMutation.mutateAsync({ claimId, data })
-                  : undefined
-              }
+              onReviewClaim={canReview ? handleReviewClaim : undefined}
             />
           ))}
         </div>
