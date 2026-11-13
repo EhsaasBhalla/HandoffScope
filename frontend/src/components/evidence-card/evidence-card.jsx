@@ -34,7 +34,9 @@ export function EvidenceCard({ evidence }) {
   const formatDate = (isoStr) => {
     if (!isoStr) return '';
     try {
-      return new Date(isoStr).toLocaleDateString('en-US', {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return d.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -67,7 +69,8 @@ export function EvidenceCard({ evidence }) {
           <a
             href={evidence.source_url}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className={styles.externalLink}
             title="Open in GitHub / Source"
           >

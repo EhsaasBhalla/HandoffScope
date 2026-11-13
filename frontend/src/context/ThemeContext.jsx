@@ -5,43 +5,62 @@ const ThemeContext = createContext(null);
 const STORAGE_KEY = 'handoffscope-theme';
 
 function getInitialTheme() {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === 'dark' || stored === 'light') return stored;
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  try {
+    const stored = typeof window !== 'undefined' ? window.localStorage?.getItem(STORAGE_KEY) : null;
+    if (stored === 'dark' || stored === 'light') return stored;
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+  } catch {
+    // Ignore storage / privacy mode exceptions
+  }
+  return 'dark';
 }
 
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(getInitialTheme);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    try {
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', theme);
+      }
+      if (typeof window !== 'undefined') {
+        window.localStorage?.setItem(STORAGE_KEY, theme);
+      }
+    } catch {
+      // Ignore storage quota / privacy mode errors
+    }
   }, [theme]);
 
   const toggleTheme = useCallback((event) => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
 
     // Circular reveal animation via View Transition API
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
 
-    if (!document.startViewTransition || prefersReducedMotion) {
+    if (typeof document === 'undefined' || !document.startViewTransition || prefersReducedMotion) {
       setThemeState(nextTheme);
       return;
     }
 
     // Get click coordinates for the reveal origin
-    const x = event?.clientX ?? window.innerWidth / 2;
-    const y = event?.clientY ?? window.innerHeight / 2;
+    const innerW = typeof window !== 'undefined' ? window.innerWidth : 800;
+    const innerH = typeof window !== 'undefined' ? window.innerHeight : 600;
+    const x = event?.clientX ?? innerW / 2;
+    const y = event?.clientY ?? innerH / 2;
     const endRadius = Math.hypot(
-      Math.max(x, window.innerWidth - x),
-      Math.max(y, window.innerHeight - y)
+      Math.max(x, innerW - x),
+      Math.max(y, innerH - y)
     );
 
     const transition = document.startViewTransition(() => {
       setThemeState(nextTheme);
     });
 
-    transition.ready.then(() => {
+    transition.ready?.then(() => {
       document.documentElement.animate(
         {
           clipPath: [

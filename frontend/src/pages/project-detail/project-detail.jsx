@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  FolderKanban,
   FileStack,
   GitBranch,
   Users,
@@ -91,7 +90,7 @@ export default function ProjectDetailPage() {
   });
 
   const syncSourceMutation = useMutation({
-    mutationFn: (sourceId) => sourceApi.importSource(sourceId),
+    mutationFn: (sourceId) => sourceApi.triggerImport(sourceId),
     onSuccess: (res) => {
       setSyncNotice(res?.message || 'Source sync started.');
       queryClient.invalidateQueries({ queryKey: ['sources', projectId] });
@@ -237,7 +236,7 @@ export default function ProjectDetailPage() {
               </div>
               <div className={styles.statsContent}>
                 <span className={styles.statsLabel}>Handover Cases</span>
-                <span className={styles.statsValue}>{cases ? cases.length : 0}</span>
+                <span className={styles.statsValue}>{Array.isArray(cases) ? cases.length : 0}</span>
               </div>
             </div>
 
@@ -247,7 +246,7 @@ export default function ProjectDetailPage() {
               </div>
               <div className={styles.statsContent}>
                 <span className={styles.statsLabel}>Connected Sources</span>
-                <span className={styles.statsValue}>{sources ? sources.length : 0}</span>
+                <span className={styles.statsValue}>{Array.isArray(sources) ? sources.length : 0}</span>
               </div>
             </div>
 
@@ -258,7 +257,7 @@ export default function ProjectDetailPage() {
               <div className={styles.statsContent}>
                 <span className={styles.statsLabel}>Identity Coverage</span>
                 <span className={styles.statsValue}>
-                  {coverage ? `${coverage.coverage_percent}%` : '0%'}
+                  {coverage ? `${coverage.coverage_percent ?? 0}%` : '0%'}
                 </span>
               </div>
             </div>
@@ -269,7 +268,7 @@ export default function ProjectDetailPage() {
               </div>
               <div className={styles.statsContent}>
                 <span className={styles.statsLabel}>Members</span>
-                <span className={styles.statsValue}>{members ? members.length : 0}</span>
+                <span className={styles.statsValue}>{Array.isArray(members) ? members.length : 0}</span>
               </div>
             </div>
           </div>
@@ -284,7 +283,7 @@ export default function ProjectDetailPage() {
               </Link>
             </div>
 
-            {cases && cases.length > 0 ? (
+            {Array.isArray(cases) && cases.length > 0 ? (
               <div className={styles.casesList}>
                 {cases.map((c) => (
                   <Link
@@ -303,7 +302,7 @@ export default function ProjectDetailPage() {
                     <div className={styles.caseMeta}>
                       <div className={styles.metaItem}>
                         <Calendar size={14} />
-                        <span>{new Date(c.created_at).toLocaleDateString()}</span>
+                        <span>{c.created_at ? new Date(c.created_at).toLocaleDateString() : '—'}</span>
                       </div>
                       {c.is_blocked && (
                         <div className={styles.blockedBadge}>
@@ -337,7 +336,7 @@ export default function ProjectDetailPage() {
             </div>
             {syncNotice && <div className={styles.infoBanner}>{syncNotice}</div>}
 
-            {sources && sources.length > 0 ? (
+            {Array.isArray(sources) && sources.length > 0 ? (
               <div className={styles.sourcesList}>
                 {sources.map((s) => (
                   <div key={s.id} className={styles.sourceItem}>
@@ -415,7 +414,7 @@ export default function ProjectDetailPage() {
               <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
                 Loading contributor identities...
               </div>
-            ) : mappings && mappings.length > 0 ? (
+            ) : Array.isArray(mappings) && mappings.length > 0 ? (
               <div className={styles.mappingsList}>
                 {mappings.map((m) => {
                   const currentSelectedUser = selectedUserMap[m.id] ?? (m.mapped_user_id || '');
@@ -560,12 +559,12 @@ export default function ProjectDetailPage() {
               </div>
             )}
 
-            {members && members.length > 0 ? (
+            {Array.isArray(members) && members.length > 0 ? (
               <div className={styles.membersGrid}>
                 {members.map((m) => (
                   <div key={m.id} className={styles.memberCard}>
                     <div className={styles.memberAvatar}>
-                      {m.user_display_name ? m.user_display_name[0] : 'U'}
+                      {(m.user_display_name || 'U')[0].toUpperCase()}
                     </div>
                     <div className={styles.memberDetails}>
                       <h4>{m.user_display_name}</h4>

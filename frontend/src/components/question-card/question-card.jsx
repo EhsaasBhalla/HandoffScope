@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Ban,
   CheckCircle2,
@@ -39,11 +39,25 @@ export function QuestionThreadCard({
   const [amendedText, setAmendedText] = useState('');
   const [amendNotes, setAmendNotes] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   const [promotionBanner, setPromotionBanner] = useState(null);
   const [inspectSource, setInspectSource] = useState(null);
   const [inspectLoading, setInspectLoading] = useState(false);
   const [inspectError, setInspectError] = useState('');
+
+  useEffect(() => {
+    if (!inspectSource) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setInspectSource(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [inspectSource]);
+
+  if (!q) return null;
 
   const statusUpper = (q.status || '').toUpperCase();
   const canGenerateAi =
@@ -64,6 +78,7 @@ export function QuestionThreadCard({
     (latestResp.review_state || '').toUpperCase() === 'PENDING_REVIEW';
 
   const handleOpenCitation = async (ref) => {
+    if (!ref || !ref.source_id) return;
     setInspectError('');
     setInspectSource({ loading: true, ref });
     setInspectLoading(true);
@@ -72,24 +87,24 @@ export function QuestionThreadCard({
         const claim = await evidenceApi.getClaim(ref.source_id);
         setInspectSource({
           type: 'CLAIM',
-          title: claim.title,
-          body: claim.body_text,
-          meta: `Claim (${claim.claim_type}) • ${claim.review_state} • ${claim.evidence_state}`,
+          title: claim?.title || 'Claim Citation',
+          body: claim?.body_text || '',
+          meta: `Claim (${claim?.claim_type || 'Unknown'}) • ${claim?.review_state || 'n/a'} • ${claim?.evidence_state || 'n/a'}`,
           locator: ref.locator,
         });
       } else {
         const rec = await sourceApi.getCaseSourceRecord(q.case_id, ref.source_id);
         setInspectSource({
-          type: rec.record_type,
-          title: rec.title,
-          body: rec.body,
-          meta: `${rec.record_type} #${rec.external_id} • Author: ${rec.author_name || 'unknown'} • State: ${rec.state || 'n/a'}`,
-          url: rec.url,
+          type: rec?.record_type || 'RECORD',
+          title: rec?.title || 'Source Record',
+          body: rec?.body || '',
+          meta: `${rec?.record_type || 'Record'} #${rec?.external_id || 'n/a'} • Author: ${rec?.author_name || 'unknown'} • State: ${rec?.state || 'n/a'}`,
+          url: rec?.url,
           locator: ref.locator,
         });
       }
     } catch (err) {
-      setInspectError(err.data?.detail || err.message || 'Unable to load source details.');
+      setInspectError(err?.data?.detail || err?.message || 'Unable to load source details.');
       setInspectSource(null);
     } finally {
       setInspectLoading(false);
@@ -97,20 +112,20 @@ export function QuestionThreadCard({
   };
 
   const handleGenerateClick = async () => {
-    if (isGeneratingAi) return;
+    if (isGeneratingAi || !onGenerateAiAnswer) return;
     setAiError('');
     setIsGeneratingAi(true);
     try {
       await onGenerateAiAnswer(q.id);
     } catch (err) {
-      setAiError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to generate AI draft.');
+      setAiError(err?.data?.detail || err?.data?.error?.message || err?.message || 'Failed to generate AI draft.');
     } finally {
       setIsGeneratingAi(false);
     }
   };
 
   const handleHumanSubmit = async () => {
-    if (!answerText.trim() || isSubmittingHuman) return;
+    if (!answerText.trim() || isSubmittingHuman || !onSubmitAnswer) return;
     setAiError('');
     setIsSubmittingHuman(true);
     try {
@@ -118,14 +133,14 @@ export function QuestionThreadCard({
       setIsAnswering(false);
       setAnswerText('');
     } catch (err) {
-      setAiError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to submit answer.');
+      setAiError(err?.data?.detail || err?.data?.error?.message || err?.message || 'Failed to submit answer.');
     } finally {
       setIsSubmittingHuman(false);
     }
   };
 
   const handleReviewAction = async (action, extra = {}) => {
-    if (isReviewing) return;
+    if (isReviewing || !onReviewResponse) return;
     setAiError('');
     setIsReviewing(true);
     try {
@@ -139,11 +154,35 @@ export function QuestionThreadCard({
         setAmendNotes('');
       }
     } catch (err) {
-      setAiError(err.data?.detail || err.data?.error?.message || err.message || 'Failed to review response.');
+      setAiError(err?.data?.detail || err?.data?.error?.message || err?.message || 'Failed to review response.');
     } finally {
       setIsReviewing(false);
     }
   };
+
+  const handleTransition = async (newStatus) => {
+    if (!onTransitionStatus || isTransitioning) return;
+    setAiError('');
+    setIsTransitioning(true);
+    try {
+      await onTransitionStatus(q.id, newStatus);
+    } catch (err) {
+      setAiError(err?.data?.detail || err?.message || 'Failed to update question status.');
+    } finally {
+      setIsTransitioning(false);
+    }
+  };
+
+  const formattedDate = q.created_at
+    ? (() => {
+        try {
+          const d = new Date(q.created_at);
+          return isNaN(d.getTime()) ? q.created_at : d.toLocaleDateString();
+        } catch {
+          return q.created_at;
+        }
+      })()
+    : '';
 
   const statusBadgeClass =
     statusUpper === 'RESOLVED'
@@ -178,7 +217,7 @@ export function QuestionThreadCard({
           <span className={`${styles.statusBadge} ${statusBadgeClass}`}>{q.status}</span>
           <span className={`${styles.priorityBadge} ${priorityBadgeClass}`}>{q.priority}</span>
         </div>
-        <span className={styles.dateMeta}>{new Date(q.created_at).toLocaleDateString()}</span>
+        {formattedDate && <span className={styles.dateMeta}>{formattedDate}</span>}
       </div>
 
       {/* Question Heading */}
@@ -214,7 +253,10 @@ export function QuestionThreadCard({
           <span>{promotionBanner.message}</span>
           <button
             type="button"
-            onClick={() => setPromotionBanner(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPromotionBanner(null);
+            }}
             className={styles.dismissBannerBtn}
             aria-label="Dismiss notice"
           >
@@ -306,12 +348,15 @@ export function QuestionThreadCard({
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => handleOpenCitation(ref)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenCitation(ref);
+                        }}
                         className={`${styles.citationBtn} ${ref.is_stale ? styles.citationBtnStale : ''}`}
                         title={ref.excerpt || 'Inspect source evidence'}
                       >
                         <FileText size={11} />
-                        <span>{ref.title || ref.locator || ref.source_id.slice(0, 8)}</span>
+                        <span>{ref.title || ref.locator || (ref.source_id ? String(ref.source_id).slice(0, 8) : 'Source')}</span>
                         {ref.is_stale && <span className={styles.staleTag}>(Potentially Stale)</span>}
                       </button>
                     ))}
@@ -332,17 +377,19 @@ export function QuestionThreadCard({
 
       {/* Inline Human Answer Box */}
       {isAnswering && (
-        <div className={styles.inlineEditor}>
+        <div className={styles.inlineEditor} onClick={(e) => e.stopPropagation()}>
           <textarea
             rows={3}
             placeholder="Write a human-confirmed answer citing relevant runbooks, PRs, or operational steps..."
             value={answerText}
             onChange={(e) => setAnswerText(e.target.value)}
             className={styles.textareaInput}
+            disabled={isSubmittingHuman}
           />
           <div className={styles.editorActions}>
             <button
               type="button"
+              disabled={isSubmittingHuman}
               onClick={() => {
                 setIsAnswering(false);
                 setAnswerText('');
@@ -365,13 +412,14 @@ export function QuestionThreadCard({
 
       {/* Inline Edit & Accept (Amend) Box */}
       {amendingResp && (
-        <div className={styles.amendEditor}>
+        <div className={styles.amendEditor} onClick={(e) => e.stopPropagation()}>
           <label className={styles.editorLabel}>Edit &amp; Accept Answer</label>
           <textarea
             rows={4}
             value={amendedText}
             onChange={(e) => setAmendedText(e.target.value)}
             className={styles.textareaInput}
+            disabled={isReviewing}
           />
           <input
             type="text"
@@ -379,10 +427,12 @@ export function QuestionThreadCard({
             value={amendNotes}
             onChange={(e) => setAmendNotes(e.target.value)}
             className={styles.textInput}
+            disabled={isReviewing}
           />
           <div className={styles.editorActions}>
             <button
               type="button"
+              disabled={isReviewing}
               onClick={() => setAmendingResp(null)}
               className={`${styles.btnBase} ${styles.btnGhost}`}
             >
@@ -406,7 +456,7 @@ export function QuestionThreadCard({
       )}
 
       {/* Actions Row */}
-      <div className={styles.actionsRow}>
+      <div className={styles.actionsRow} onClick={(e) => e.stopPropagation()}>
         {canGenerateAi && (
           <button
             type="button"
@@ -469,30 +519,33 @@ export function QuestionThreadCard({
         {canReview && statusUpper === 'DRAFT' && (
           <button
             type="button"
-            onClick={() => onTransitionStatus(q.id, 'OPEN')}
+            disabled={isTransitioning}
+            onClick={() => handleTransition('OPEN')}
             className={`${styles.btnBase} ${styles.btnPrimary}`}
           >
-            <CheckCircle2 size={12} /> Publish Question
+            <CheckCircle2 size={12} /> {isTransitioning ? 'Publishing…' : 'Publish Question'}
           </button>
         )}
 
         {canReview && (statusUpper === 'RESOLVED' || statusUpper === 'DISMISSED') && (
           <button
             type="button"
-            onClick={() => onTransitionStatus(q.id, 'OPEN')}
+            disabled={isTransitioning}
+            onClick={() => handleTransition('OPEN')}
             className={`${styles.btnBase} ${styles.btnGhost}`}
           >
-            <RotateCcw size={12} /> Reopen Question
+            <RotateCcw size={12} /> {isTransitioning ? 'Reopening…' : 'Reopen Question'}
           </button>
         )}
 
         {canReview && statusUpper === 'OPEN' && (
           <button
             type="button"
-            onClick={() => onTransitionStatus(q.id, 'DISMISSED')}
+            disabled={isTransitioning}
+            onClick={() => handleTransition('DISMISSED')}
             className={`${styles.btnBase} ${styles.btnGhostMuted}`}
           >
-            <Ban size={12} /> Dismiss
+            <Ban size={12} /> {isTransitioning ? 'Dismissing…' : 'Dismiss'}
           </button>
         )}
       </div>
@@ -502,13 +555,16 @@ export function QuestionThreadCard({
         <div
           className={styles.modalBackdrop}
           onClick={() => setInspectSource(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="inspect-source-title"
         >
           <div
             className={styles.modalDialog}
             onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>
+              <h3 id="inspect-source-title" className={styles.modalTitle}>
                 {inspectLoading ? 'Loading Source Details…' : inspectSource.title || 'Source Record'}
               </h3>
               <button
@@ -533,7 +589,7 @@ export function QuestionThreadCard({
                   <a
                     href={inspectSource.url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className={styles.externalRefLink}
                   >
                     Open Original External Reference <ExternalLink size={12} />

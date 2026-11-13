@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   GitCommit,
@@ -8,11 +8,11 @@ import {
   Search,
   ExternalLink,
   Calendar,
-  User as UserIcon,
   CheckCircle2,
   FolderKanban,
   MessageSquare,
   FileText,
+  X,
 } from 'lucide-react';
 import { projectApi } from '../../api/project.api';
 import { timelineApi } from '../../api/timeline.api';
@@ -21,8 +21,18 @@ import styles from './timeline.module.css';
 export default function TimelinePage() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedType, setSelectedType] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
+
+  // Debounce search input to avoid request flooding
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // 1. Fetch workspaces & projects
   const { data: workspaces } = useQuery({
@@ -39,23 +49,23 @@ export default function TimelinePage() {
   });
 
   // Effective project ID (default to first project)
-  const effectiveProjectId = selectedProjectId || projects?.[0]?.id;
+  const effectiveProjectId = selectedProjectId || (Array.isArray(projects) ? projects[0]?.id : undefined);
 
   // 2. Fetch timeline
   const { data: timelineData, isLoading: timelineLoading } = useQuery({
-    queryKey: ['project-timeline', effectiveProjectId, selectedType, searchQuery, page],
+    queryKey: ['project-timeline', effectiveProjectId, selectedType, debouncedSearch, page],
     queryFn: () =>
       timelineApi.getTimeline(effectiveProjectId, {
         event_type: selectedType === 'ALL' ? undefined : selectedType,
-        search: searchQuery || undefined,
+        search: debouncedSearch || undefined,
         page,
         per_page: 25,
       }),
     enabled: !!effectiveProjectId,
   });
 
-  const items = timelineData?.items || [];
-  const eventTypes = timelineData?.event_types || [];
+  const items = Array.isArray(timelineData?.items) ? timelineData.items : [];
+  const eventTypes = Array.isArray(timelineData?.event_types) ? timelineData.event_types : [];
   const total = timelineData?.total || 0;
   const totalPages = timelineData?.total_pages || 1;
 
@@ -153,7 +163,7 @@ export default function TimelinePage() {
         </div>
 
         {/* Project Selector */}
-        {projects && projects.length > 0 && (
+        {Array.isArray(projects) && projects.length > 0 && (
           <div className={styles.projectSelectWrap}>
             <FolderKanban size={15} color="var(--color-text-muted)" />
             <span className={styles.projectSelectLabel}>Project:</span>
@@ -185,12 +195,18 @@ export default function TimelinePage() {
               type="text"
               placeholder="Search title, commit messages, or summary..."
               className={styles.searchInput}
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(1);
-              }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
+            {searchInput && (
+              <button
+                className={styles.clearSearchBtn}
+                onClick={() => setSearchInput('')}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
 
           {/* Filter Chips */}
@@ -258,7 +274,19 @@ export default function TimelinePage() {
         <div className={styles.emptyState}>
           <Calendar size={32} />
           <h3>No events match the selected filters</h3>
-          <p>Try clearing your search query or selecting "All Events".</p>
+          <p>Try clearing your search query or selecting &ldquo;All Events&rdquo;.</p>
+          {(selectedType !== 'ALL' || searchInput) && (
+            <button
+              className={styles.resetFiltersBtn}
+              onClick={() => {
+                setSelectedType('ALL');
+                setSearchInput('');
+                setPage(1);
+              }}
+            >
+              Reset Filters
+            </button>
+          )}
         </div>
       ) : (
         <div className={styles.streamWrapper}>
@@ -322,7 +350,7 @@ export default function TimelinePage() {
                     <div className={styles.cardFooter}>
                       <div className={styles.actorInfo}>
                         <div className={styles.avatarCircle}>
-                          {(item.actor_name || item.actor_external_id || 'U')[0].toUpperCase()}
+                          {((item.actor_name || item.actor_external_id || 'U')[0] || 'U').toUpperCase()}
                         </div>
                         <span className={styles.actorName}>
                           {item.actor_name || item.actor_external_id || 'System'}

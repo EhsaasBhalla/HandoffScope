@@ -9,9 +9,7 @@ import {
   HelpCircle,
   CheckCircle,
   AlertTriangle,
-  ArrowRight,
   PlusCircle,
-  Activity,
   Compass,
   Sparkles,
 } from 'lucide-react';
@@ -184,7 +182,7 @@ export default function OverviewPage() {
           <div className={styles.card}>
             {isLoading ? (
               <div style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading cases...</div>
-            ) : !stats?.active_cases || stats.active_cases.length === 0 ? (
+            ) : !Array.isArray(stats?.active_cases) || stats.active_cases.length === 0 ? (
               <div style={{ padding: 'var(--space-2xl)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                 No active handover cases in this workspace.
               </div>
@@ -248,7 +246,7 @@ export default function OverviewPage() {
 
           {/* Needs Attention Cards */}
           <div>
-            {!stats?.needs_attention || stats.needs_attention.length === 0 ? (
+            {!Array.isArray(stats?.needs_attention) || stats.needs_attention.length === 0 ? (
               <div className={styles.attentionCard} style={{ borderLeft: '4px solid #10b981' }}>
                 <CheckCircle size={18} color="#10b981" />
                 <div>
@@ -260,17 +258,17 @@ export default function OverviewPage() {
               stats.needs_attention.map((item, idx) => (
                 <Link
                   key={idx}
-                  to={item.link}
+                  to={item?.link || '#'}
                   className={`${styles.attentionCard} ${
-                    item.severity === 'high' ? styles.attentionHigh : styles.attentionMedium
+                    item?.severity === 'high' ? styles.attentionHigh : styles.attentionMedium
                   }`}
                 >
                   <AlertTriangle
                     size={18}
-                    color={item.severity === 'high' ? 'var(--color-error)' : 'var(--color-warning)'}
+                    color={item?.severity === 'high' ? 'var(--color-error)' : 'var(--color-warning)'}
                   />
                   <div style={{ flex: 1 }}>
-                    <div className={styles.attentionTitle}>{item.title}</div>
+                    <div className={styles.attentionTitle}>{item?.title}</div>
                     <div className={styles.attentionSub}>Click to resolve in workspace →</div>
                   </div>
                 </Link>
@@ -288,7 +286,7 @@ export default function OverviewPage() {
 
           <div className={styles.card}>
             <div className={styles.activityList}>
-              {!stats?.recent_activity || stats.recent_activity.length === 0 ? (
+              {!Array.isArray(stats?.recent_activity) || stats.recent_activity.length === 0 ? (
                 <div style={{ padding: 'var(--space-md)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                   No recent activity recorded.
                 </div>

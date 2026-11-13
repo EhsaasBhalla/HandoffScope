@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, FolderKanban, GitBranch, Users, ExternalLink } from 'lucide-react';
+import { Plus, FolderKanban, GitBranch, Search, X } from 'lucide-react';
 import { projectApi } from '../../api/project.api';
 import styles from './projects.module.css';
 
 export default function ProjectsPage() {
   const queryClient = useQueryClient();
   const [selectedWsId, setSelectedWsId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectSlug, setNewProjectSlug] = useState('');
@@ -30,6 +31,18 @@ export default function ProjectsPage() {
     queryFn: () => projectApi.listProjects(activeWsId),
     enabled: !!activeWsId,
   });
+
+  const filteredProjects = useMemo(() => {
+    if (!Array.isArray(projects)) return [];
+    if (!searchQuery.trim()) return projects;
+    const q = searchQuery.toLowerCase();
+    return projects.filter(
+      (p) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.slug || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q)
+    );
+  }, [projects, searchQuery]);
 
   const createMutation = useMutation({
     mutationFn: (data) => projectApi.createProject(activeWsId, data),
@@ -78,7 +91,27 @@ export default function ProjectsPage() {
         </div>
 
         <div className={styles.actions}>
-          {workspaces && workspaces.length > 1 && (
+          <div className={styles.searchWrap}>
+            <Search size={14} style={{ color: 'var(--color-text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search projects…"
+              className={styles.searchInput}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => setSearchQuery('')}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {Array.isArray(workspaces) && workspaces.length > 1 && (
             <select
               className={styles.wsSelect}
               value={activeWsId}
@@ -105,9 +138,9 @@ export default function ProjectsPage() {
       {/* Projects List */}
       {projectsLoading ? (
         <div className={styles.loading}>Loading projects…</div>
-      ) : projects && projects.length > 0 ? (
+      ) : filteredProjects.length > 0 ? (
         <div className={styles.grid}>
-          {projects.map((p) => (
+          {filteredProjects.map((p) => (
             <Link key={p.id} to={`/projects/${p.id}`} className={styles.card}>
               <div className={styles.cardHeader}>
                 <FolderKanban className={styles.folderIcon} size={22} />
@@ -123,6 +156,15 @@ export default function ProjectsPage() {
               )}
             </Link>
           ))}
+        </div>
+      ) : Array.isArray(projects) && projects.length > 0 ? (
+        <div className={styles.empty}>
+          <FolderKanban size={40} className={styles.emptyIcon} />
+          <h3>No matching projects</h3>
+          <p>No projects match your search query &ldquo;{searchQuery}&rdquo;.</p>
+          <button className={styles.resetBtn} onClick={() => setSearchQuery('')}>
+            Reset search
+          </button>
         </div>
       ) : (
         <div className={styles.empty}>

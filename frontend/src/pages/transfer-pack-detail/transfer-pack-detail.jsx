@@ -23,6 +23,7 @@ import { transferPackApi } from '../../api/transferPack.api';
 import { evidenceApi } from '../../api/evidence.api';
 import { questionApi } from '../../api/question.api';
 import { reviewApi } from '../../api/review.api';
+import { usePermissions } from '../../hooks/usePermissions';
 import { ClaimCard } from '../../components/claim-card/claim-card';
 import styles from './transfer-pack-detail.module.css';
 
@@ -40,6 +41,12 @@ const CLAIM_TYPES = [
 export default function TransferPackDetailPage() {
   const { caseId, packId } = useParams();
   const queryClient = useQueryClient();
+  const { hasCapability } = usePermissions();
+
+  const canManagePack = hasCapability('pack.manage') || hasCapability('case.manage');
+  const canReview = hasCapability('review.submit') || hasCapability('case.approve');
+  const canCreateQuestion = hasCapability('question.create');
+
   const [selectedType, setSelectedType] = useState('ALL');
 
   // Modals state
@@ -51,14 +58,36 @@ export default function TransferPackDetailPage() {
   const [packName, setPackName] = useState('');
   const [packDesc, setPackDesc] = useState('');
   const [packArea, setPackArea] = useState('');
+  const [editError, setEditError] = useState('');
 
   // Ask Question form
   const [qText, setQText] = useState('');
   const [qWhy, setQWhy] = useState('');
   const [qPriority, setQPriority] = useState('MEDIUM');
+  const [questionError, setQuestionError] = useState('');
 
   // Merge form
   const [sourcePackIdToMerge, setSourcePackIdToMerge] = useState('');
+  const [mergeError, setMergeError] = useState('');
+
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setEditError('');
+  };
+
+  const closeMergeModal = () => {
+    setShowMergeModal(false);
+    setSourcePackIdToMerge('');
+    setMergeError('');
+  };
+
+  const closeQuestionModal = () => {
+    setShowQuestionModal(false);
+    setQText('');
+    setQWhy('');
+    setQPriority('MEDIUM');
+    setQuestionError('');
+  };
 
   // 1. Fetch Transfer Pack details
   const { data: pack, isLoading: packLoading } = useQuery({
@@ -98,7 +127,11 @@ export default function TransferPackDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
-      setShowEditModal(false);
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      closeEditModal();
+    },
+    onError: (err) => {
+      setEditError(err.data?.detail || err.message || 'Failed to update Transfer Pack');
     },
   });
 
@@ -107,6 +140,12 @@ export default function TransferPackDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to transition pack status');
     },
   });
 
@@ -117,6 +156,11 @@ export default function TransferPackDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to move claim');
     },
   });
 
@@ -124,6 +168,12 @@ export default function TransferPackDetailPage() {
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to update claim');
     },
   });
 
@@ -133,9 +183,14 @@ export default function TransferPackDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['pack-questions', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to review claim');
     },
   });
 
@@ -144,9 +199,14 @@ export default function TransferPackDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
-      setSourcePackIdToMerge('');
-      setShowMergeModal(false);
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      closeMergeModal();
+    },
+    onError: (err) => {
+      setMergeError(err.data?.detail || err.message || 'Failed to merge packs');
     },
   });
 
@@ -154,9 +214,13 @@ export default function TransferPackDetailPage() {
     mutationFn: (data) => questionApi.createQuestion(caseId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pack-questions', packId] });
-      setShowQuestionModal(false);
-      setQText('');
-      setQWhy('');
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      closeQuestionModal();
+    },
+    onError: (err) => {
+      setQuestionError(err.data?.detail || err.message || 'Failed to submit question');
     },
   });
 
@@ -244,15 +308,17 @@ export default function TransferPackDetailPage() {
           </div>
 
           <div className={styles.headerActions}>
-            <button className={styles.actionButton} onClick={openEditModal}>
-              <Settings size={14} /> Edit Pack
-            </button>
-            {allPacks && allPacks.length > 1 && (
+            {canManagePack && (
+              <button className={styles.actionButton} onClick={openEditModal}>
+                <Settings size={14} /> Edit Pack
+              </button>
+            )}
+            {canManagePack && allPacks && allPacks.length > 1 && (
               <button className={styles.actionButton} onClick={() => setShowMergeModal(true)}>
                 <GitMerge size={14} /> Merge Pack
               </button>
             )}
-            {nextStatus && (
+            {nextStatus && (canManagePack || canReview) && (
               <button
                 className={`${styles.actionButton} ${styles.primaryBtn}`}
                 onClick={() => transitionStatusMutation.mutate(nextStatus.target)}
@@ -279,7 +345,9 @@ export default function TransferPackDetailPage() {
           </div>
           <div className={styles.metaItem}>
             <span className={styles.metaLabel}>Created Date</span>
-            <span className={styles.metaValue}>{new Date(pack.created_at).toLocaleDateString()}</span>
+            <span className={styles.metaValue}>
+              {pack.created_at ? new Date(pack.created_at).toLocaleDateString() : 'N/A'}
+            </span>
           </div>
         </div>
       </div>
@@ -347,15 +415,24 @@ export default function TransferPackDetailPage() {
               key={claim.id}
               claim={claim}
               availablePacks={allPacks || []}
-              onMoveClaim={(claimId, targetPackId) =>
-                moveClaimMutation.mutateAsync({ claimId, targetPackId })
+              onMoveClaim={
+                canManagePack
+                  ? (claimId, targetPackId) =>
+                      moveClaimMutation.mutateAsync({ claimId, targetPackId })
+                  : undefined
               }
-              onUpdateClaim={(claimId, data) =>
-                updateClaimMutation.mutateAsync({ claimId, data })
+              onUpdateClaim={
+                canManagePack
+                  ? (claimId, data) =>
+                      updateClaimMutation.mutateAsync({ claimId, data })
+                  : undefined
               }
-              enableReview={true}
-              onReviewClaim={(claimId, data) =>
-                reviewClaimMutation.mutateAsync({ claimId, data })
+              enableReview={canReview}
+              onReviewClaim={
+                canReview
+                  ? (claimId, data) =>
+                      reviewClaimMutation.mutateAsync({ claimId, data })
+                  : undefined
               }
             />
           ))}
@@ -369,12 +446,14 @@ export default function TransferPackDetailPage() {
             <HelpCircle size={18} style={{ color: 'var(--color-accent)' }} />
             Knowledge Gap Questions ({packQuestions?.length || 0})
           </h3>
-          <button
-            className={`${styles.actionButton} ${styles.primaryBtn}`}
-            onClick={() => setShowQuestionModal(true)}
-          >
-            <Plus size={14} /> Ask Question for this Pack
-          </button>
+          {canCreateQuestion && (
+            <button
+              className={`${styles.actionButton} ${styles.primaryBtn}`}
+              onClick={() => setShowQuestionModal(true)}
+            >
+              <Plus size={14} /> Ask Question for this Pack
+            </button>
+          )}
         </div>
 
         {packQuestions && packQuestions.length > 0 ? (
@@ -394,7 +473,7 @@ export default function TransferPackDetailPage() {
                 )}
                 {q.responses && q.responses.length > 0 && (
                   <div style={{ marginTop: '6px', padding: '8px', backgroundColor: 'var(--color-bg-primary)', borderRadius: '4px', fontSize: '12px' }}>
-                    <strong>Latest Answer:</strong> {q.responses[q.responses.length - 1].response_text}
+                    <strong>Latest Answer:</strong> {q.responses[q.responses.length - 1]?.response_text || ''}
                   </div>
                 )}
               </div>
@@ -409,9 +488,14 @@ export default function TransferPackDetailPage() {
 
       {/* Edit Pack Modal */}
       {showEditModal && (
-        <div className={styles.modalBackdrop} onClick={() => setShowEditModal(false)}>
+        <div className={styles.modalBackdrop} onClick={closeEditModal}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Edit Transfer Pack</h3>
+            {editError && (
+              <div style={{ color: 'var(--color-danger, #ef4444)', fontSize: '13px' }}>
+                {editError}
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Pack Name</label>
               <input
@@ -440,7 +524,7 @@ export default function TransferPackDetailPage() {
               />
             </div>
             <div className={styles.modalActions}>
-              <button className={styles.actionButton} onClick={() => setShowEditModal(false)}>
+              <button className={styles.actionButton} onClick={closeEditModal}>
                 Cancel
               </button>
               <button
@@ -463,12 +547,17 @@ export default function TransferPackDetailPage() {
 
       {/* Merge Pack Modal */}
       {showMergeModal && (
-        <div className={styles.modalBackdrop} onClick={() => setShowMergeModal(false)}>
+        <div className={styles.modalBackdrop} onClick={closeMergeModal}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Merge Transfer Pack</h3>
             <p style={{ color: 'var(--color-text-secondary)', fontSize: '13px', margin: 0 }}>
               Select a Transfer Pack to merge into <strong>{pack.name}</strong>. All claims will be consolidated here and the source pack will be deleted.
             </p>
+            {mergeError && (
+              <div style={{ color: 'var(--color-danger, #ef4444)', fontSize: '13px' }}>
+                {mergeError}
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Source Pack to Merge</label>
               <select
@@ -481,13 +570,13 @@ export default function TransferPackDetailPage() {
                   ?.filter((p) => p.id !== pack.id)
                   .map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.claims_count} claims)
+                      {p.name} ({p.claims_count ?? (p.claims?.length || 0)} claims)
                     </option>
                   ))}
               </select>
             </div>
             <div className={styles.modalActions}>
-              <button className={styles.actionButton} onClick={() => setShowMergeModal(false)}>
+              <button className={styles.actionButton} onClick={closeMergeModal}>
                 Cancel
               </button>
               <button
@@ -504,9 +593,14 @@ export default function TransferPackDetailPage() {
 
       {/* Ask Question Modal */}
       {showQuestionModal && (
-        <div className={styles.modalBackdrop} onClick={() => setShowQuestionModal(false)}>
+        <div className={styles.modalBackdrop} onClick={closeQuestionModal}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Ask Question for {pack.name}</h3>
+            {questionError && (
+              <div style={{ color: 'var(--color-danger, #ef4444)', fontSize: '13px' }}>
+                {questionError}
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Question Text</label>
               <textarea
@@ -541,7 +635,7 @@ export default function TransferPackDetailPage() {
               </select>
             </div>
             <div className={styles.modalActions}>
-              <button className={styles.actionButton} onClick={() => setShowQuestionModal(false)}>
+              <button className={styles.actionButton} onClick={closeQuestionModal}>
                 Cancel
               </button>
               <button

@@ -3,6 +3,7 @@
  *
  * Implements client-side capability checking aligned with the backend 9x30 RBAC matrix.
  */
+import { useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 // Capability mapping for demo users aligned with their actual roles
@@ -50,7 +51,7 @@ const USER_CAPABILITY_MAP = {
 export function usePermissions() {
   const { user } = useAuth();
 
-  function hasCapability(capability) {
+  const hasCapability = useCallback((capability) => {
     if (!capability) return true;
     if (!user) return false;
 
@@ -61,12 +62,18 @@ export function usePermissions() {
 
     // Legacy fallback for minimal mock test user objects
     const userCaps = USER_CAPABILITY_MAP[user.email] || USER_CAPABILITY_MAP['default_contributor'];
-    return userCaps.includes(capability);
-  }
+    return userCaps ? userCaps.includes(capability) : false;
+  }, [user]);
 
-  function hasAnyCapability(...capabilities) {
-    return capabilities.some(hasCapability);
-  }
+  const hasAnyCapability = useCallback((...capabilities) => {
+    const flattened = capabilities.flat();
+    return flattened.some(hasCapability);
+  }, [hasCapability]);
 
-  return { hasCapability, hasAnyCapability };
+  const hasAllCapabilities = useCallback((...capabilities) => {
+    const flattened = capabilities.flat();
+    return flattened.every(hasCapability);
+  }, [hasCapability]);
+
+  return { hasCapability, hasAnyCapability, hasAllCapabilities };
 }

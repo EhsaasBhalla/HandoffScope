@@ -12,8 +12,8 @@ export const auditApi = {
     if (params.actor_id) searchParams.append('actor_id', params.actor_id);
     if (params.action) searchParams.append('action', params.action);
     if (params.search) searchParams.append('search', params.search);
-    if (params.limit) searchParams.append('limit', params.limit);
-    if (params.offset) searchParams.append('offset', params.offset);
+    if (params.limit !== undefined && params.limit !== null) searchParams.append('limit', params.limit);
+    if (params.offset !== undefined && params.offset !== null) searchParams.append('offset', params.offset);
 
     const query = searchParams.toString();
     return httpClient.get(`/api/v1/audit/events${query ? `?${query}` : ''}`);

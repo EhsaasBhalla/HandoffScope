@@ -11,7 +11,7 @@ export const transferPackApi = {
     httpClient.patch(`/api/v1/transfer-packs/${packId}`, data),
   moveClaims: (packId, claimIds) =>
     httpClient.post(`/api/v1/transfer-packs/${packId}/claims`, {
-      claim_ids: Array.isArray(claimIds) ? claimIds : [claimIds],
+      claim_ids: Array.isArray(claimIds) ? claimIds : (claimIds ? [claimIds] : []),
     }),
   mergePacks: (packId, sourcePackId) =>
     httpClient.post(`/api/v1/transfer-packs/${packId}/merge`, {

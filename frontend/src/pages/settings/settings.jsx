@@ -1,6 +1,6 @@
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { User, Shield, Moon, Sun, Cpu, Database, Server, HardDrive } from 'lucide-react';
+import { User, Moon, Sun, Cpu, Server } from 'lucide-react';
 import styles from './settings.module.css';
 
 export default function SettingsPage() {

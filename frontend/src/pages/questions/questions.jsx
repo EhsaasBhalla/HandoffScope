@@ -1,18 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   HelpCircle,
   Plus,
-  MessageSquare,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  User,
-  AlertTriangle,
-  ChevronDown,
-  RotateCcw,
-  Ban,
-  FileEdit,
-  FolderKanban,
+  Search,
+  X,
 } from 'lucide-react';
 import { questionApi } from '../../api/question.api';
 import { transferPackApi } from '../../api/transferPack.api';
@@ -26,6 +17,7 @@ export default function QuestionsPage() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Ask Question Modal state
   const [showModal, setShowModal] = useState(false);
@@ -38,34 +30,21 @@ export default function QuestionsPage() {
   const [priority, setPriority] = useState('MEDIUM');
   const [isSubmittingQuestion, setIsSubmittingQuestion] = useState(false);
 
-  useEffect(() => {
-    loadQuestions();
-    loadCases();
-  }, [filterStatus, user?.id]);
-
-  useEffect(() => {
-    setSelectedPackId('');
-    if (selectedCaseId) {
-      loadPacksForCase(selectedCaseId);
-    } else {
-      setAvailablePacks([]);
-    }
-  }, [selectedCaseId]);
-
-  async function loadQuestions() {
+  const loadQuestions = useCallback(async () => {
     setLoading(true);
     try {
       const params = filterStatus !== 'ALL' ? { status: filterStatus } : {};
       const res = await questionApi.listQuestions(params);
-      setQuestions(Array.isArray(res) ? res : res?.data || []);
+      setQuestions(Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : []);
     } catch (err) {
       console.error('Failed to load questions:', err);
+      setQuestions([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, [filterStatus]);
 
-  async function loadCases() {
+  const loadCases = useCallback(async () => {
     try {
       const wsRes = await httpClient.get('/api/v1/workspaces');
       if (Array.isArray(wsRes) && wsRes.length > 0) {
@@ -90,7 +69,15 @@ export default function QuestionsPage() {
     } catch (err) {
       console.error('Failed to load cases:', err);
     }
-  }
+  }, [selectedCaseId]);
+
+  useEffect(() => {
+    loadQuestions();
+  }, [loadQuestions, user?.id]);
+
+  useEffect(() => {
+    loadCases();
+  }, [loadCases]);
 
   async function loadPacksForCase(caseId) {
     try {
@@ -163,6 +150,18 @@ export default function QuestionsPage() {
     }
   }
 
+  const filteredQuestions = useMemo(() => {
+    if (!Array.isArray(questions)) return [];
+    if (!searchQuery.trim()) return questions;
+    const q = searchQuery.toLowerCase();
+    return questions.filter((item) => {
+      const text = (item.question_text || '').toLowerCase();
+      const why = (item.why_it_matters || '').toLowerCase();
+      const caseName = (item.case_title || '').toLowerCase();
+      return text.includes(q) || why.includes(q) || caseName.includes(q);
+    });
+  }, [questions, searchQuery]);
+
   return (
     <div className={styles.container}>
       {/* Page Header */}
@@ -194,22 +193,60 @@ export default function QuestionsPage() {
             </button>
           ))}
         </div>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-          {questions.length} question{questions.length === 1 ? '' : 's'}
-        </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+          <div className={styles.searchWrap}>
+            <Search size={14} style={{ color: 'var(--color-text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search questions or context…"
+              className={styles.searchInput}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => setSearchQuery('')}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+            {filteredQuestions.length} of {questions.length} question{questions.length === 1 ? '' : 's'}
+          </span>
+        </div>
       </div>
 
       {/* Questions List */}
       {loading ? (
         <div className={styles.emptyState}>Loading questions...</div>
-      ) : questions.length === 0 ? (
+      ) : filteredQuestions.length === 0 ? (
         <div className={styles.emptyState}>
           <HelpCircle size={40} style={{ opacity: 0.3, marginBottom: 'var(--space-sm)' }} />
-          <p>No questions found for the selected filter.</p>
+          <p>
+            {questions.length === 0
+              ? 'No questions found for the selected status filter.'
+              : 'No questions match your search query.'}
+          </p>
+          {(filterStatus !== 'ALL' || searchQuery) && (
+            <button
+              className={styles.resetFiltersBtn}
+              onClick={() => {
+                setFilterStatus('ALL');
+                setSearchQuery('');
+              }}
+            >
+              Reset Filters
+            </button>
+          )}
         </div>
       ) : (
         <div className={styles.list}>
-          {questions.map((q) => (
+          {filteredQuestions.map((q) => (
             <QuestionThreadCard
               key={q.id}
               q={q}

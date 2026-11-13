@@ -13,7 +13,7 @@ let refreshPromise = null;
 
 function readStorage(key) {
   try {
-    return window.localStorage.getItem(key) || null;
+    return typeof window !== 'undefined' ? window.localStorage?.getItem(key) || null : null;
   } catch {
     return null;
   }
@@ -21,10 +21,11 @@ function readStorage(key) {
 
 function writeStorage(key, val) {
   try {
+    if (typeof window === 'undefined') return;
     if (val) {
-      window.localStorage.setItem(key, val);
+      window.localStorage?.setItem(key, val);
     } else {
-      window.localStorage.removeItem(key);
+      window.localStorage?.removeItem(key);
     }
   } catch {
     // Ignore storage quota / privacy mode errors
@@ -62,6 +63,9 @@ async function performTokenRefresh() {
         credentials: 'include',
         body: storedRefresh ? JSON.stringify({ refresh_token: storedRefresh }) : undefined,
       });
+
+      const newCsrf = res.headers.get('X-CSRF-Token');
+      if (newCsrf) setCsrfToken(newCsrf);
 
       if (!res.ok) {
         clearAuthTokens();
@@ -125,6 +129,14 @@ async function request(endpoint, options = {}, { allowRefresh = true } = {}) {
     }
   }
 
+  // If 401 persists after retry, or refresh failed/bypassed, dispatch expiry event
+  if (response.status === 401 && !isAuthBypass) {
+    clearAuthTokens();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('handoffscope:auth-expired'));
+    }
+  }
+
   // Extract CSRF token from response header if present
   const newCsrf = response.headers.get('X-CSRF-Token');
   if (newCsrf) {
@@ -149,8 +161,10 @@ async function request(endpoint, options = {}, { allowRefresh = true } = {}) {
     const detailMsg = typeof data?.detail === 'string'
       ? data.detail
       : Array.isArray(data?.detail)
-        ? data.detail.map((d) => d.msg || JSON.stringify(d)).join('; ')
-        : null;
+        ? data.detail.map((d) => (d && typeof d === 'object' ? d.msg || JSON.stringify(d) : String(d))).join('; ')
+        : (data?.detail && typeof data?.detail === 'object')
+          ? (data.detail.message || JSON.stringify(data.detail))
+          : null;
     const message = data?.error?.message || detailMsg || `Request failed: ${response.status}`;
     const error = new Error(message);
     error.status = response.status;
@@ -163,6 +177,10 @@ async function request(endpoint, options = {}, { allowRefresh = true } = {}) {
 
 export function getAccessToken() {
   return readStorage(ACCESS_KEY);
+}
+
+export function getRefreshToken() {
+  return readStorage(REFRESH_KEY);
 }
 
 export function getApiBaseUrl() {
@@ -182,10 +200,16 @@ async function downloadBlob(endpoint, fallbackFilename = 'download', { allowRefr
     credentials: 'include',
   });
 
-  if (response.status === 401 && allowRefresh) {
-    const refreshed = await performTokenRefresh();
-    if (refreshed) {
-      return downloadBlob(endpoint, fallbackFilename, { allowRefresh: false });
+  if (response.status === 401) {
+    if (allowRefresh) {
+      const refreshed = await performTokenRefresh();
+      if (refreshed) {
+        return downloadBlob(endpoint, fallbackFilename, { allowRefresh: false });
+      }
+    }
+    clearAuthTokens();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('handoffscope:auth-expired'));
     }
   }
 
@@ -201,34 +225,47 @@ async function downloadBlob(endpoint, fallbackFilename = 'download', { allowRefr
   }
 
   const blob = await response.blob();
+  let filename = fallbackFilename;
   const disposition = response.headers.get('Content-Disposition') || '';
-  const match = disposition.match(/filename="?([^"]+)"?/i);
-  const filename = match?.[1] || fallbackFilename;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      filename = decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      filename = utf8Match[1].trim();
+    }
+  } else {
+    const match = disposition.match(/filename=(?:(["'])(.*?)\1|([^;\n]*))/i);
+    const candidate = match?.[2] || match?.[3];
+    if (candidate) filename = candidate.trim();
+  }
 
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = objectUrl;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+  if (typeof document !== 'undefined') {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+  }
   return { filename, size: blob.size };
 }
 
 export const httpClient = {
   get:    (url, opts) => request(url, { ...opts, method: 'GET' }),
-  post:   (url, body, opts) => request(url, { ...opts, method: 'POST', body: JSON.stringify(body) }),
-  put:    (url, body, opts) => request(url, { ...opts, method: 'PUT', body: JSON.stringify(body) }),
-  patch:  (url, body, opts) => request(url, { ...opts, method: 'PATCH', body: JSON.stringify(body) }),
+  post:   (url, body, opts) => request(url, { ...opts, method: 'POST', body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined }),
+  put:    (url, body, opts) => request(url, { ...opts, method: 'PUT', body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined }),
+  patch:  (url, body, opts) => request(url, { ...opts, method: 'PATCH', body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined }),
   delete: (url, opts) => request(url, { ...opts, method: 'DELETE' }),
   download: downloadBlob,
 
-  // For file uploads — no JSON content type
-  upload: (url, formData, opts) => request(url, {
+  // For file uploads — preserve custom headers and method override
+  upload: (url, formData, opts = {}) => request(url, {
     ...opts,
-    method: 'POST',
+    method: opts.method || 'POST',
     body: formData,
-    headers: {}, // Let browser set Content-Type with boundary
+    headers: { ...opts.headers },
   }),
 };

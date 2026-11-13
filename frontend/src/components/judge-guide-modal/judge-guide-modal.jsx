@@ -146,45 +146,59 @@ export function JudgeGuideModal({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('acts'); // 'acts' | 'personas' | 'fast-track' | 'architecture'
   const [currentActIndex, setCurrentActIndex] = useState(0);
   const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState(null);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const { user, login } = useAuth();
   const navigate = useNavigate();
 
+  const handleDismiss = () => {
+    if (dontShowAgain) {
+      try {
+        localStorage.setItem('handoffscope_guide_dismissed', 'true');
+      } catch {
+        // Ignore storage write issues
+      }
+    }
+    if (onClose) onClose();
+  };
+
   useEffect(() => {
+    if (!isOpen) return;
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         handleDismiss();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, dontShowAgain]);
+  }, [isOpen, dontShowAgain, onClose]);
 
   if (!isOpen) return null;
-
-  const handleDismiss = () => {
-    if (dontShowAgain) {
-      localStorage.setItem('handoffscope_guide_dismissed', 'true');
-    }
-    onClose();
-  };
 
   const handleSwitchPersona = async (email) => {
     try {
       setSwitching(true);
+      setSwitchError(null);
       await login(email, 'handoffscope-dev-2026');
     } catch (err) {
       console.error('Failed to switch persona:', err);
+      setSwitchError(err?.data?.detail || err?.message || 'Failed to switch persona');
     } finally {
       setSwitching(false);
     }
   };
 
-  const currentAct = ACTS[currentActIndex];
+  const currentAct = ACTS[currentActIndex] || ACTS[0];
 
   return (
-    <div className={styles.overlay} onClick={handleDismiss}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.overlay} onClick={handleDismiss} role="presentation">
+      <div
+        className={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="judge-guide-title"
+      >
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.headerTitleWrap}>
@@ -193,10 +207,10 @@ export function JudgeGuideModal({ isOpen, onClose }) {
             </div>
             <div>
               <div className={styles.tagline}>Workspace Quickstart • Interactive Product Tour</div>
-              <h2 className={styles.title}>HandoffScope Guide</h2>
+              <h2 id="judge-guide-title" className={styles.title}>HandoffScope Guide</h2>
             </div>
           </div>
-          <button className={styles.closeBtn} onClick={handleDismiss} title="Close Guide">
+          <button type="button" className={styles.closeBtn} onClick={handleDismiss} title="Close Guide" aria-label="Close Guide">
             <X size={20} />
           </button>
         </div>
@@ -204,6 +218,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
         {/* Navigation Tabs */}
         <div className={styles.navTabs}>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'acts' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('acts')}
           >
@@ -211,6 +226,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
             <span>Interactive 5-Act Walkthrough</span>
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'personas' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('personas')}
           >
@@ -218,6 +234,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
             <span>1-Click Persona Switcher</span>
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'fast-track' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('fast-track')}
           >
@@ -225,6 +242,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
             <span>3-Min Fast Track</span>
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'architecture' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('architecture')}
           >
@@ -242,6 +260,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
               <div className={styles.actSelector}>
                 {ACTS.map((act, idx) => (
                   <button
+                    type="button"
                     key={act.number}
                     className={`${styles.actPill} ${idx === currentActIndex ? styles.actPillActive : ''}`}
                     onClick={() => setCurrentActIndex(idx)}
@@ -264,6 +283,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                     <span className={styles.actPersonaValue}>{currentAct.persona}</span>
                     {user?.email !== currentAct.personaEmail && (
                       <button
+                        type="button"
                         className={styles.switchPersonaQuickBtn}
                         onClick={() => handleSwitchPersona(currentAct.personaEmail)}
                         disabled={switching}
@@ -288,6 +308,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
 
                 <div className={styles.actActions}>
                   <button
+                    type="button"
                     className={styles.navigateBtn}
                     onClick={() => {
                       navigate(currentAct.targetPath);
@@ -300,6 +321,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
 
                   <div className={styles.actStepNav}>
                     <button
+                      type="button"
                       className={styles.stepNavBtn}
                       disabled={currentActIndex === 0}
                       onClick={() => setCurrentActIndex((i) => i - 1)}
@@ -307,6 +329,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                       Previous Act
                     </button>
                     <button
+                      type="button"
                       className={styles.stepNavBtn}
                       disabled={currentActIndex === ACTS.length - 1}
                       onClick={() => setCurrentActIndex((i) => i + 1)}
@@ -326,6 +349,8 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                 HandoffScope implements strict Role-Based Access Control (RBAC). Switch personas below in 1-click
                 to experience different visibility levels, from Lead to Reviewer and Successor:
               </p>
+
+              {switchError && <div className={styles.switchError}>{switchError}</div>}
 
               <div className={styles.personaGrid}>
                 {PERSONAS.map((p) => {
@@ -356,6 +381,7 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                           </span>
                         ) : (
                           <button
+                            type="button"
                             className={styles.personaSelectBtn}
                             onClick={() => handleSwitchPersona(p.email)}
                             disabled={switching}
@@ -379,7 +405,19 @@ export function JudgeGuideModal({ isOpen, onClose }) {
               </div>
 
               <div className={styles.fastTrackGrid}>
-                <div className={styles.fastTrackCard} onClick={() => { navigate('/cases'); handleDismiss(); }}>
+                <div
+                  className={styles.fastTrackCard}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { navigate('/cases'); handleDismiss(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate('/cases');
+                      handleDismiss();
+                    }
+                  }}
+                >
                   <div className={styles.fastTrackNumber}>01</div>
                   <div className={styles.fastTrackContent}>
                     <h4>Bi-Directional Evidence Grounding</h4>
@@ -388,7 +426,19 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                   <ChevronRight size={18} className={styles.fastTrackArrow} />
                 </div>
 
-                <div className={styles.fastTrackCard} onClick={() => { navigate('/cases'); handleDismiss(); }}>
+                <div
+                  className={styles.fastTrackCard}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { navigate('/cases'); handleDismiss(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate('/cases');
+                      handleDismiss();
+                    }
+                  }}
+                >
                   <div className={styles.fastTrackNumber}>02</div>
                   <div className={styles.fastTrackContent}>
                     <h4>Contradiction & Unknown Detection</h4>
@@ -397,7 +447,19 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                   <ChevronRight size={18} className={styles.fastTrackArrow} />
                 </div>
 
-                <div className={styles.fastTrackCard} onClick={() => { navigate('/review'); handleDismiss(); }}>
+                <div
+                  className={styles.fastTrackCard}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { navigate('/review'); handleDismiss(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate('/review');
+                      handleDismiss();
+                    }
+                  }}
+                >
                   <div className={styles.fastTrackNumber}>03</div>
                   <div className={styles.fastTrackContent}>
                     <h4>Review Queue & Snapshot Versioning</h4>
@@ -406,7 +468,19 @@ export function JudgeGuideModal({ isOpen, onClose }) {
                   <ChevronRight size={18} className={styles.fastTrackArrow} />
                 </div>
 
-                <div className={styles.fastTrackCard} onClick={() => { navigate('/successor'); handleDismiss(); }}>
+                <div
+                  className={styles.fastTrackCard}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { navigate('/successor'); handleDismiss(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate('/successor');
+                      handleDismiss();
+                    }
+                  }}
+                >
                   <div className={styles.fastTrackNumber}>04</div>
                   <div className={styles.fastTrackContent}>
                     <h4>Successor View & Redaction Policy</h4>
@@ -462,8 +536,8 @@ export function JudgeGuideModal({ isOpen, onClose }) {
           </label>
 
           <div className={styles.footerButtons}>
-            <button className={styles.dismissBtn} onClick={handleDismiss}>
-              Close & Explore Workspace
+            <button type="button" className={styles.dismissBtn} onClick={handleDismiss}>
+              Close &amp; Explore Workspace
             </button>
           </div>
         </div>

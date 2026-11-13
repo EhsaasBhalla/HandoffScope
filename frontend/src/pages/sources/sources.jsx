@@ -1,14 +1,16 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   GitBranch,
   Upload,
   FileText,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
-  ExternalLink,
   Plus,
+  FolderTree,
+  X,
+  ShieldAlert,
 } from 'lucide-react';
 import { projectApi } from '../../api/project.api';
 import { sourceApi, githubApi } from '../../api/source.api';
@@ -19,6 +21,7 @@ import styles from './sources.module.css';
 export default function SourcesPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [importStatusMessage, setImportStatusMessage] = useState('');
@@ -36,6 +39,28 @@ export default function SourcesPage() {
   const [jiraProjectKey, setJiraProjectKey] = useState('');
   const [jiraEmail, setJiraEmail] = useState('');
   const [jiraToken, setJiraToken] = useState('');
+  const [oauthModal, setOauthModal] = useState(null); // { title: string, message: string, isError: boolean }
+
+  // Check for OAuth callback or error parameters in URL on mount
+  useEffect(() => {
+    const errorParam = searchParams.get('error') || searchParams.get('error_description');
+    const codeParam = searchParams.get('code');
+    const installationParam = searchParams.get('installation_id');
+
+    if (errorParam) {
+      setOauthModal({
+        title: 'GitHub OAuth Authorization Error',
+        message: decodeURIComponent(errorParam),
+        isError: true,
+      });
+      setSearchParams({});
+    } else if (codeParam || installationParam) {
+      setImportStatusMessage('GitHub App connection callback received. Updating workspace integration status…');
+      queryClient.invalidateQueries({ queryKey: ['github-status'] });
+      setSearchParams({});
+      setTimeout(() => setImportStatusMessage(''), 8000);
+    }
+  }, [searchParams, setSearchParams, queryClient]);
 
   // 1. Fetch workspaces and active project
   const { data: workspaces } = useQuery({
@@ -51,9 +76,28 @@ export default function SourcesPage() {
     enabled: !!activeWsId,
   });
 
-  const defaultProject = projects?.[0];
+  const defaultProject = Array.isArray(projects) ? projects[0] : null;
   const projectId = selectedProjectId || defaultProject?.id;
-  const activeProject = projects?.find((p) => p.id === projectId) || defaultProject;
+  const activeProject = Array.isArray(projects) ? projects.find((p) => p.id === projectId) || defaultProject : defaultProject;
+
+  const handleConnectGithubApp = async () => {
+    try {
+      const res = await githubApi.getInstallUrl();
+      if (res?.url) {
+        window.location.href = res.url;
+      }
+    } catch (err) {
+      setOauthModal({
+        title: 'GitHub App OAuth Configuration',
+        message:
+          err.data?.detail ||
+          err.data?.error?.message ||
+          err.message ||
+          'GitHub App is not configured on this instance. You can still connect public or private repositories directly using the owner/repo input below.',
+        isError: false,
+      });
+    }
+  };
 
   // 2. Fetch GitHub connection status
   const { data: githubStatus } = useQuery({
@@ -326,6 +370,17 @@ export default function SourcesPage() {
               <Plus size={14} />
               <span>Connect Source</span>
             </button>
+            {!githubStatus?.connected && (
+              <button
+                type="button"
+                className={styles.importTriggerBtn}
+                onClick={handleConnectGithubApp}
+                title="Authorize and install GitHub App integration"
+                style={{ marginLeft: '4px' }}
+              >
+                <span>Install GitHub App</span>
+              </button>
+            )}
             {githubStatus?.connected ? (
               <span className={styles.connectedBadge}>
                 <CheckCircle2 size={14} /> Connected ({githubStatus.account_login})
@@ -340,6 +395,11 @@ export default function SourcesPage() {
 
         {showAddRepo && (
           <div style={{ padding: 'var(--space-md) var(--space-lg)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {importError && (
+              <div className={styles.errorBox} style={{ margin: 0 }}>
+                {importError}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {[
                 { id: 'GITHUB_REPO', label: 'GitHub Repo' },
@@ -524,7 +584,7 @@ export default function SourcesPage() {
         </div>
 
         {/* Uploaded Documents List */}
-        {documents && documents.length > 0 && (
+        {Array.isArray(documents) && documents.length > 0 && (
           <div className={styles.docsList}>
             <h4 className={styles.subHeading}>Uploaded Documents ({documents.length})</h4>
             <div className={styles.docsTableWrapper}>
@@ -546,15 +606,15 @@ export default function SourcesPage() {
                         <FileText size={16} />
                         <span>{doc.original_filename}</span>
                       </td>
-                      <td className={styles.monoCell}>{doc.mime_type.split('/').pop()}</td>
-                      <td>{(doc.file_size / 1024).toFixed(1)} KB</td>
+                      <td className={styles.monoCell}>{(doc.mime_type || '').split('/').pop() || 'file'}</td>
+                      <td>{((doc.file_size || 0) / 1024).toFixed(1)} KB</td>
                       <td>{doc.page_count ? `${doc.page_count} pages` : doc.section_count ? `${doc.section_count} sections` : '—'}</td>
                       <td>
-                        <span className={`${styles.statusChip} ${styles[doc.processing_status.toLowerCase()] || ''}`}>
+                        <span className={`${styles.statusChip} ${styles[doc.processing_status?.toLowerCase()] || ''}`}>
                           {doc.processing_status}
                         </span>
                       </td>
-                      <td className={styles.dateCell}>{new Date(doc.created_at).toLocaleDateString()}</td>
+                      <td className={styles.dateCell}>{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -570,7 +630,8 @@ export default function SourcesPage() {
           <div className={styles.cardHeaderInfo}>
             <h3>Source Inventory</h3>
             <p>
-              <strong>Sync Repository</strong> fetches remote updates from GitHub.{' '}
+              <strong>Sync Repository</strong> fetches remote updates from GitHub &amp; indexes code structure.{' '}
+              <strong>Index Tree</strong> extracts high-signal architecture, configs &amp; manifests.{' '}
               <strong>Check Local Freshness</strong> evaluates timestamps of already-imported local records only (makes no remote GitHub call).
             </p>
           </div>
@@ -578,7 +639,7 @@ export default function SourcesPage() {
 
         {sourcesLoading ? (
           <div className={styles.loading}>Loading sources…</div>
-        ) : sources && sources.length > 0 ? (
+        ) : Array.isArray(sources) && sources.length > 0 ? (
           <div className={styles.tableWrapper}>
             <table className={styles.table}>
               <thead>
@@ -630,6 +691,15 @@ export default function SourcesPage() {
                             Counts: fetched {run.records_fetched} · imported {run.records_created} · updated {run.records_updated} · skipped {run.records_skipped ?? 0}
                           </span>
                         )}
+                        {run?.tree_index && typeof run.tree_index === 'object' && (
+                          <div className={styles.treeIndexBadge}>
+                            <FolderTree size={11} />
+                            <span>
+                              Tree: {run.tree_index.files_indexed || 0} code files indexed
+                              {run.tree_index.total_bytes ? ` (${Math.round(run.tree_index.total_bytes / 1024)} KB)` : ''}
+                            </span>
+                          </div>
+                        )}
                         {(run?.status === 'FAILED' || run?.status === 'PARTIAL') && run?.error_message && (
                           <span style={{ color: run.status === 'FAILED' ? 'var(--color-error)' : 'var(--color-warning)' }}>
                             {run.status === 'PARTIAL' ? 'Partial note: ' : 'Error: '}{run.error_message}
@@ -637,7 +707,7 @@ export default function SourcesPage() {
                         )}
                       </div>
                     </td>
-                    <td>{new Date(src.created_at).toLocaleDateString()}</td>
+                    <td>{src.created_at ? new Date(src.created_at).toLocaleDateString() : '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         <button
@@ -649,6 +719,17 @@ export default function SourcesPage() {
                           <RefreshCw size={13} className={syncingSourceId === src.id ? styles.spinIcon : ''} />
                           <span>{syncingSourceId === src.id ? 'Syncing…' : 'Sync Repository'}</span>
                         </button>
+                        {src.source_type === 'GITHUB_REPO' && (
+                          <button
+                            className={styles.importTriggerBtn}
+                            onClick={() => importMutation.mutate(src.id)}
+                            disabled={syncingSourceId === src.id || importMutation.isPending}
+                            title="Index repository code structure, configs, and package manifests"
+                          >
+                            <FolderTree size={13} className={syncingSourceId === src.id ? styles.spinIcon : ''} />
+                            <span>Index Tree</span>
+                          </button>
+                        )}
                         <button
                           className={styles.importTriggerBtn}
                           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
@@ -682,6 +763,42 @@ export default function SourcesPage() {
           </div>
         )}
       </div>
+
+      {/* OAuth / Connection Notice Modal */}
+      {oauthModal && (
+        <div className={styles.modalOverlay} onClick={() => setOauthModal(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {oauthModal.isError ? (
+                  <ShieldAlert size={20} color="var(--color-error)" />
+                ) : (
+                  <GitBranch size={20} color="var(--color-accent)" />
+                )}
+                <h3>{oauthModal.title}</h3>
+              </div>
+              <button
+                className={styles.closeBtn}
+                onClick={() => setOauthModal(null)}
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <p>{oauthModal.message}</p>
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.primaryModalBtn}
+                onClick={() => setOauthModal(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

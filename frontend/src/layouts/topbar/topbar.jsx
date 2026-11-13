@@ -26,8 +26,9 @@ function buildBreadcrumbs(pathname) {
 
 function getInitials(name) {
   if (!name) return '?';
-  return name
-    .split(' ')
+  const parts = name.split(' ').filter(Boolean);
+  if (!parts.length) return '?';
+  return parts
     .map((w) => w[0])
     .join('')
     .toUpperCase()
@@ -43,15 +44,26 @@ export function Topbar({ onOpenGuide }) {
 
   const breadcrumbs = buildBreadcrumbs(location.pathname);
 
-  // Close menu on outside click
+  // Close menu on outside click or Escape key
   useEffect(() => {
     function handleClick(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
       }
     }
-    if (menuOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClick);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [menuOpen]);
 
   return (

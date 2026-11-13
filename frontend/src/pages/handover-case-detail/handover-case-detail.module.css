@@ -809,3 +809,48 @@
   word-break: break-all;
 }
 
+.loading {
+  text-align: center;
+  padding: var(--space-4xl);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.notFound {
+  text-align: center;
+  padding: var(--space-4xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--color-text-muted);
+}
+
+.notFound h3 {
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.notFound a {
+  color: var(--color-accent-text);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+}
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.readinessIconReady {
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.readinessIconBlocked {
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+
+

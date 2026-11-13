@@ -24,6 +24,14 @@ import {
   Download,
   FileArchive,
   FileCheck,
+  Sparkles,
+  Layers,
+  MessageSquare,
+  Plus,
+  User,
+  FolderKanban,
+  XCircle,
+  Radio,
 } from 'lucide-react';
 import { caseApi } from '../../api/case.api';
 import { evidenceApi } from '../../api/evidence.api';
@@ -40,7 +48,7 @@ import { ApprovalPreflightPanel } from '../../components/approval-preflight-pane
 import { QuestionThreadCard } from '../../components/question-card/question-card';
 import { HandoverChatDrawer } from '../../components/handover-chat-drawer/handover-chat-drawer';
 import { useCaseLiveUpdates } from '../../hooks/useCaseLiveUpdates';
-import { Sparkles, Layers, MessageSquare, Plus, User, FolderKanban, XCircle, Radio } from 'lucide-react';
+import { usePermissions } from '../../hooks/usePermissions';
 import styles from './handover-case-detail.module.css';
 
 const STAGES = [
@@ -63,9 +71,18 @@ const TABS = [
 export default function HandoverCaseDetailPage() {
   const { caseId } = useParams();
   const queryClient = useQueryClient();
+  const { hasCapability } = usePermissions();
+
+  const canManageCase = hasCapability('case.manage');
+  const canTriggerReconstruct = hasCapability('extraction.trigger') || hasCapability('case.manage');
+  const canReview = hasCapability('review.submit') || hasCapability('case.approve');
+  const canCreateQuestion = hasCapability('question.create');
+  const canShare = hasCapability('share.manage');
+
   const [activeTab, setActiveTab] = useState('overview');
   const [blockReason, setBlockReason] = useState('');
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockError, setBlockError] = useState('');
 
   // Question state
   const [showQuestionModal, setShowQuestionModal] = useState(false);
@@ -73,6 +90,7 @@ export default function HandoverCaseDetailPage() {
   const [qWhy, setQWhy] = useState('');
   const [qPriority, setQPriority] = useState('MEDIUM');
   const [qPackId, setQPackId] = useState('');
+  const [questionError, setQuestionError] = useState('');
 
   // Review & Approval state (Phase 8)
   const [reviewFilter, setReviewFilter] = useState('ALL');
@@ -91,9 +109,41 @@ export default function HandoverCaseDetailPage() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareRecipientId, setShareRecipientId] = useState('');
   const [shareVersionId, setShareVersionId] = useState('');
+  const [shareError, setShareError] = useState('');
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignPackId, setAssignPackId] = useState('');
   const [assignUserId, setAssignUserId] = useState('');
+  const [assignError, setAssignError] = useState('');
+
+  // Modal reset handlers
+  const closeQuestionModal = () => {
+    setShowQuestionModal(false);
+    setQText('');
+    setQWhy('');
+    setQPriority('MEDIUM');
+    setQPackId('');
+    setQuestionError('');
+  };
+
+  const closeBlockModal = () => {
+    setShowBlockModal(false);
+    setBlockReason('');
+    setBlockError('');
+  };
+
+  const closeShareModal = () => {
+    setShowShareModal(false);
+    setShareRecipientId('');
+    setShareVersionId('');
+    setShareError('');
+  };
+
+  const closeAssignModal = () => {
+    setShowAssignModal(false);
+    setAssignPackId('');
+    setAssignUserId('');
+    setAssignError('');
+  };
 
   const { data: caseData, isLoading } = useQuery({
     queryKey: ['case', caseId],
@@ -139,6 +189,7 @@ export default function HandoverCaseDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
     onError: (err) => {
@@ -156,6 +207,8 @@ export default function HandoverCaseDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       setActiveTab('versions');
     },
     onError: (err) => {
@@ -169,6 +222,10 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to move claim');
     },
   });
 
@@ -176,6 +233,10 @@ export default function HandoverCaseDetailPage() {
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to update claim');
     },
   });
 
@@ -204,8 +265,14 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-shares', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
-      setShowShareModal(false);
-      setShareRecipientId('');
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+      closeShareModal();
+    },
+    onError: (err) => {
+      setShareError(err.data?.detail || err.message || 'Failed to issue share grant');
     },
   });
 
@@ -213,6 +280,14 @@ export default function HandoverCaseDetailPage() {
     mutationFn: (grantId) => sharingApi.revokeShare(grantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-shares', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to revoke share grant');
     },
   });
 
@@ -220,9 +295,14 @@ export default function HandoverCaseDetailPage() {
     mutationFn: (data) => recipientApi.assignResponsibility(caseId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-responsibilities', caseId] });
-      setShowAssignModal(false);
-      setAssignPackId('');
-      setAssignUserId('');
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      closeAssignModal();
+    },
+    onError: (err) => {
+      setAssignError(err.data?.detail || err.message || 'Failed to assign responsibility');
     },
   });
 
@@ -230,10 +310,12 @@ export default function HandoverCaseDetailPage() {
     mutationFn: (data) => questionApi.createQuestion(caseId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
-      setShowQuestionModal(false);
-      setQText('');
-      setQWhy('');
-      setQPackId('');
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      closeQuestionModal();
+    },
+    onError: (err) => {
+      setQuestionError(err.data?.detail || err.message || 'Failed to submit question');
     },
   });
 
@@ -243,6 +325,10 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to submit response');
     },
   });
 
@@ -251,6 +337,9 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to generate AI response');
     },
   });
 
@@ -275,6 +364,10 @@ export default function HandoverCaseDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to update question status');
     },
   });
 
@@ -299,6 +392,11 @@ export default function HandoverCaseDetailPage() {
     mutationFn: ({ status, reason }) => caseApi.changeStatus(caseId, status, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to update case status');
     },
   });
 
@@ -306,8 +404,12 @@ export default function HandoverCaseDetailPage() {
     mutationFn: ({ blocked, reason }) => caseApi.setBlocked(caseId, blocked, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
-      setShowBlockModal(false);
-      setBlockReason('');
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      closeBlockModal();
+    },
+    onError: (err) => {
+      setBlockError(err.data?.detail || err.message || 'Failed to update case block status');
     },
   });
 
@@ -337,13 +439,15 @@ export default function HandoverCaseDetailPage() {
             <h4>Handover Case Blocked</h4>
             <p>{caseData.blocked_reason || 'This case has been flagged as blocked pending investigation.'}</p>
           </div>
-          <button
-            className={styles.unblockBtn}
-            onClick={() => blockMutation.mutate({ blocked: false })}
-            disabled={blockMutation.isPending}
-          >
-            Clear Block
-          </button>
+          {canManageCase && (
+            <button
+              className={styles.unblockBtn}
+              onClick={() => blockMutation.mutate({ blocked: false })}
+              disabled={blockMutation.isPending}
+            >
+              Clear Block
+            </button>
+          )}
         </div>
       )}
 
@@ -386,16 +490,18 @@ export default function HandoverCaseDetailPage() {
             <MessageSquare size={14} /> Ask Handover
           </button>
 
-          <button
-            className={styles.primaryActionBtn}
-            onClick={() => reconstructMutation.mutate()}
-            disabled={reconstructMutation.isPending || caseData.is_blocked}
-          >
-            <Sparkles size={14} style={{ marginRight: '6px' }} />
-            {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
-          </button>
+          {canTriggerReconstruct && (
+            <button
+              className={styles.primaryActionBtn}
+              onClick={() => reconstructMutation.mutate()}
+              disabled={reconstructMutation.isPending || caseData.is_blocked}
+            >
+              <Sparkles size={14} style={{ marginRight: '6px' }} />
+              {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
+            </button>
+          )}
 
-          {!caseData.is_blocked ? (
+          {canManageCase && !caseData.is_blocked ? (
             <button
               className={styles.blockBtn}
               onClick={() => setShowBlockModal(true)}
@@ -405,7 +511,7 @@ export default function HandoverCaseDetailPage() {
           ) : null}
 
           {/* Contextual Status Transition Buttons */}
-          {caseData.status === 'DRAFT' && !caseData.is_blocked && (
+          {canManageCase && caseData.status === 'DRAFT' && !caseData.is_blocked && (
             <button
               className={styles.primaryActionBtn}
               onClick={() => statusMutation.mutate({ status: 'CONNECTING' })}
@@ -415,7 +521,7 @@ export default function HandoverCaseDetailPage() {
             </button>
           )}
 
-          {['RECONSTRUCTING', 'NEEDS_INPUT'].includes(caseData.status) && !caseData.is_blocked && (
+          {canManageCase && ['RECONSTRUCTING', 'NEEDS_INPUT'].includes(caseData.status) && !caseData.is_blocked && (
             <button
               className={styles.primaryActionBtn}
               onClick={() => statusMutation.mutate({ status: 'UNDER_REVIEW' })}
@@ -519,7 +625,7 @@ export default function HandoverCaseDetailPage() {
               <div className={styles.infoGrid}>
                 <div>
                   <span className={styles.infoLabel}>Transition Type</span>
-                  <span className={styles.infoValue}>{caseData.transition_type.replace(/_/g, ' ')}</span>
+                  <span className={styles.infoValue}>{caseData.transition_type?.replace(/_/g, ' ') || 'STANDARD'}</span>
                 </div>
                 <div>
                   <span className={styles.infoLabel}>Scope Start</span>
@@ -531,7 +637,7 @@ export default function HandoverCaseDetailPage() {
                 </div>
                 <div>
                   <span className={styles.infoLabel}>Created</span>
-                  <span className={styles.infoValue}>{new Date(caseData.created_at).toLocaleDateString()}</span>
+                  <span className={styles.infoValue}>{caseData.created_at ? new Date(caseData.created_at).toLocaleDateString() : 'N/A'}</span>
                 </div>
               </div>
             </div>
@@ -571,14 +677,16 @@ export default function HandoverCaseDetailPage() {
                 </p>
               </div>
 
-              <button
-                className={styles.primaryActionBtn}
-                onClick={() => reconstructMutation.mutate()}
-                disabled={reconstructMutation.isPending || caseData.is_blocked}
-              >
-                <Sparkles size={14} style={{ marginRight: '6px' }} />
-                {reconstructMutation.isPending ? 'Reconstructing…' : 'Re-run Extraction'}
-              </button>
+              {canTriggerReconstruct && (
+                <button
+                  className={styles.primaryActionBtn}
+                  onClick={() => reconstructMutation.mutate()}
+                  disabled={reconstructMutation.isPending || caseData.is_blocked}
+                >
+                  <Sparkles size={14} style={{ marginRight: '6px' }} />
+                  {reconstructMutation.isPending ? 'Reconstructing…' : 'Re-run Extraction'}
+                </button>
+              )}
             </div>
 
             {packsLoading ? (
@@ -600,7 +708,7 @@ export default function HandoverCaseDetailPage() {
                     <h4 className={styles.packName}>{p.name}</h4>
                     <p className={styles.packDescription}>{p.description || 'No description provided.'}</p>
                     <div className={styles.packFooter}>
-                      <span>{p.claims_count} Grounded Claims</span>
+                      <span>{p.claims_count ?? (p.claims?.length || 0)} Grounded Claims</span>
                       <span style={{ color: 'var(--color-accent)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                         Open Pack <ArrowRight size={12} />
                       </span>
@@ -613,15 +721,17 @@ export default function HandoverCaseDetailPage() {
                 <Layers size={36} />
                 <h3>No Transfer Packs Generated Yet</h3>
                 <p>Run AI structured reconstruction to analyze commits, issues, and PRs into grounded workstreams.</p>
-                <button
-                  className={styles.primaryActionBtn}
-                  onClick={() => reconstructMutation.mutate()}
-                  disabled={reconstructMutation.isPending}
-                  style={{ marginTop: '1rem' }}
-                >
-                  <Sparkles size={14} style={{ marginRight: '6px' }} />
-                  {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
-                </button>
+                {canTriggerReconstruct && (
+                  <button
+                    className={styles.primaryActionBtn}
+                    onClick={() => reconstructMutation.mutate()}
+                    disabled={reconstructMutation.isPending}
+                    style={{ marginTop: '1rem' }}
+                  >
+                    <Sparkles size={14} style={{ marginRight: '6px' }} />
+                    {reconstructMutation.isPending ? 'Reconstructing…' : 'Reconstruct Knowledge'}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -638,12 +748,14 @@ export default function HandoverCaseDetailPage() {
                   Questions directed to the departing contributor to eliminate tribal knowledge gaps.
                 </p>
               </div>
-              <button
-                className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                onClick={() => setShowQuestionModal(true)}
-              >
-                <Plus size={14} /> Ask Question
-              </button>
+              {canCreateQuestion && (
+                <button
+                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                  onClick={() => setShowQuestionModal(true)}
+                >
+                  <Plus size={14} /> Ask Question
+                </button>
+              )}
             </div>
 
             {questionsLoading ? (
@@ -655,13 +767,15 @@ export default function HandoverCaseDetailPage() {
                 <HelpCircle size={32} />
                 <h3>No Questions Asked Yet</h3>
                 <p>Add targeted inquiries to clarify runbooks, architectural decisions, and operational subtleties.</p>
-                <button
-                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                  style={{ marginTop: 'var(--space-md)' }}
-                  onClick={() => setShowQuestionModal(true)}
-                >
-                  <Plus size={14} /> Ask First Question
-                </button>
+                {canCreateQuestion && (
+                  <button
+                    className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                    style={{ marginTop: 'var(--space-md)' }}
+                    onClick={() => setShowQuestionModal(true)}
+                  >
+                    <Plus size={14} /> Ask First Question
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
@@ -782,7 +896,7 @@ export default function HandoverCaseDetailPage() {
                       key={claim.id}
                       claim={claim}
                       availablePacks={packs || []}
-                      enableReview={true}
+                      enableReview={canReview}
                       onReviewClaim={(claimId, data) => reviewClaimMutation.mutateAsync({ claimId, data })}
                       onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
                       onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
@@ -895,7 +1009,7 @@ export default function HandoverCaseDetailPage() {
                       <div className={styles.versionMeta}>
                         <span>Approved by {v.approved_by_name || 'Reviewer'}</span>
                         <span>•</span>
-                        <span>{new Date(v.approved_at).toLocaleString()}</span>
+                        <span>{v.approved_at ? new Date(v.approved_at).toLocaleString() : 'N/A'}</span>
                         <span>•</span>
                         <span>{v.total_packs} Packs</span>
                         <span>•</span>
@@ -913,8 +1027,12 @@ export default function HandoverCaseDetailPage() {
                       <button
                         className={styles.btnActionSm}
                         onClick={async () => {
-                          const detail = await reviewApi.getVersion(v.id);
-                          setInspectSnapshot(detail);
+                          try {
+                            const detail = await reviewApi.getVersion(v.id);
+                            setInspectSnapshot(detail);
+                          } catch (err) {
+                            alert(err.data?.detail || err.message || 'Failed to fetch version snapshot');
+                          }
                         }}
                       >
                         <Eye size={12} /> View Frozen Snapshot JSON
@@ -977,13 +1095,15 @@ export default function HandoverCaseDetailPage() {
                     Grant verified successors and incoming leads read/sign-off access to approved version snapshots.
                   </p>
                 </div>
-                <button
-                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                  onClick={() => setShowShareModal(true)}
-                  disabled={!versions || versions.length === 0}
-                >
-                  <Send size={14} /> Share Version Access
-                </button>
+                {canShare && (
+                  <button
+                    className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                    onClick={() => setShowShareModal(true)}
+                    disabled={!versions || versions.length === 0}
+                  >
+                    <Send size={14} /> Share Version Access
+                  </button>
+                )}
               </div>
 
               {!caseShares || caseShares.length === 0 ? (
@@ -1014,7 +1134,7 @@ export default function HandoverCaseDetailPage() {
                           )}
                         </div>
 
-                        {g.is_active && (
+                        {canShare && g.is_active && (
                           <button
                             className={styles.btnActionSm}
                             onClick={() => revokeShareMutation.mutate(g.id)}
@@ -1028,7 +1148,7 @@ export default function HandoverCaseDetailPage() {
                       <div className={styles.versionMeta}>
                         <span>Version {g.version_number}</span>
                         <span>•</span>
-                        <span>Granted {new Date(g.granted_at).toLocaleDateString()} by {g.granter_name || 'Lead'}</span>
+                        <span>Granted {g.granted_at ? new Date(g.granted_at).toLocaleDateString() : 'N/A'} by {g.granter_name || 'Lead'}</span>
                         {g.acknowledged_at && (
                           <>
                             <span>•</span>
@@ -1054,13 +1174,15 @@ export default function HandoverCaseDetailPage() {
                     Map operational ownership of specific services and runbooks to incoming engineers.
                   </p>
                 </div>
-                <button
-                  className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
-                  onClick={() => setShowAssignModal(true)}
-                  disabled={!packs || packs.length === 0}
-                >
-                  <UserPlus size={14} /> Assign Pack Ownership
-                </button>
+                {canShare && (
+                  <button
+                    className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
+                    onClick={() => setShowAssignModal(true)}
+                    disabled={!packs || packs.length === 0}
+                  >
+                    <UserPlus size={14} /> Assign Pack Ownership
+                  </button>
+                )}
               </div>
 
               {!caseResponsibilities || caseResponsibilities.length === 0 ? (
@@ -1097,12 +1219,12 @@ export default function HandoverCaseDetailPage() {
                               borderColor: isAccepted ? 'var(--color-success)' : isDeclined ? 'var(--color-error)' : 'var(--color-warning)',
                             }}
                           >
-                            {r.status.replace('_', ' ')}
+                            {(r.status || '').replace(/_/g, ' ')}
                           </span>
                         </div>
 
                         <div className={styles.versionMeta}>
-                          <span>Assigned {new Date(r.assigned_at).toLocaleDateString()}</span>
+                          <span>Assigned {r.assigned_at ? new Date(r.assigned_at).toLocaleDateString() : 'N/A'}</span>
                           {r.responded_at && (
                             <>
                               <span>•</span>
@@ -1128,12 +1250,18 @@ export default function HandoverCaseDetailPage() {
 
       {/* Ask Question Modal */}
       {showQuestionModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowQuestionModal(false)}>
+        <div className={styles.modalOverlay} onClick={closeQuestionModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Ask a Handover Question</h3>
             <p className={styles.modalSubtitle}>
               Target an inquiry to uncover hidden assumptions and unwritten practices.
             </p>
+
+            {questionError && (
+              <div style={{ fontSize: '12px', color: 'var(--color-error)', padding: '6px 8px', borderRadius: '4px', backgroundColor: 'var(--color-error-bg)' }}>
+                {questionError}
+              </div>
+            )}
 
             {packs && packs.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1222,7 +1350,7 @@ export default function HandoverCaseDetailPage() {
             </div>
 
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowQuestionModal(false)}>
+              <button className={styles.cancelBtn} onClick={closeQuestionModal}>
                 Cancel
               </button>
               <button
@@ -1248,10 +1376,15 @@ export default function HandoverCaseDetailPage() {
 
       {/* Block Modal */}
       {showBlockModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowBlockModal(false)}>
+        <div className={styles.modalOverlay} onClick={closeBlockModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3>Flag Case as Blocked</h3>
             <p className={styles.modalSubtitle}>Provide a reason for blocking this handover case.</p>
+            {blockError && (
+              <div style={{ fontSize: '12px', color: 'var(--color-error)', padding: '6px 8px', borderRadius: '4px', backgroundColor: 'var(--color-error-bg)' }}>
+                {blockError}
+              </div>
+            )}
             <textarea
               rows={3}
               placeholder="e.g. Missing key architectural documentation from vendor, pending security audit..."
@@ -1259,7 +1392,7 @@ export default function HandoverCaseDetailPage() {
               onChange={(e) => setBlockReason(e.target.value)}
             />
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowBlockModal(false)}>
+              <button className={styles.cancelBtn} onClick={closeBlockModal}>
                 Cancel
               </button>
               <button
@@ -1285,10 +1418,10 @@ export default function HandoverCaseDetailPage() {
               </button>
             </div>
             <p className={styles.modalSubtitle}>
-              Approved {new Date(inspectSnapshot.approved_at).toLocaleString()} by {inspectSnapshot.approved_by_name}
+              Approved {inspectSnapshot.approved_at ? new Date(inspectSnapshot.approved_at).toLocaleString() : 'N/A'} by {inspectSnapshot.approved_by_name || 'Reviewer'}
             </p>
             <pre className={styles.jsonViewer}>
-              {JSON.stringify(inspectSnapshot.snapshot_json, null, 2)}
+              {JSON.stringify(inspectSnapshot.snapshot_json || {}, null, 2)}
             </pre>
             <div className={styles.modalActions}>
               <button
@@ -1304,12 +1437,18 @@ export default function HandoverCaseDetailPage() {
 
       {/* Share Version Modal (Phase 9) */}
       {showShareModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowShareModal(false)}>
+        <div className={styles.modalOverlay} onClick={closeShareModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Share Approved Version</h3>
             <p className={styles.modalSubtitle}>
               Grant an incoming successor or stakeholder read and acknowledgment access to an approved version snapshot.
             </p>
+
+            {shareError && (
+              <div style={{ fontSize: '12px', color: 'var(--color-error)', padding: '6px 8px', borderRadius: '4px', backgroundColor: 'var(--color-error-bg)' }}>
+                {shareError}
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
@@ -1361,16 +1500,16 @@ export default function HandoverCaseDetailPage() {
             </div>
 
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowShareModal(false)}>
+              <button className={styles.cancelBtn} onClick={closeShareModal}>
                 Cancel
               </button>
               <button
                 className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
                 style={{ padding: '8px 16px', fontSize: '13px' }}
-                disabled={!shareRecipientId || shareVersionMutation.isPending}
+                disabled={!shareRecipientId || !(versions && versions.length > 0) || shareVersionMutation.isPending}
                 onClick={() =>
                   shareVersionMutation.mutate({
-                    versionId: shareVersionId || versions[0].id,
+                    versionId: shareVersionId || versions?.[0]?.id,
                     recipientUserId: shareRecipientId,
                   })
                 }
@@ -1385,12 +1524,18 @@ export default function HandoverCaseDetailPage() {
 
       {/* Assign Pack Responsibility Modal (Phase 9) */}
       {showAssignModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowAssignModal(false)}>
+        <div className={styles.modalOverlay} onClick={closeAssignModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Assign Transfer Pack Responsibility</h3>
             <p className={styles.modalSubtitle}>
               Designate a successor as the operational owner for this Transfer Pack.
             </p>
+
+            {assignError && (
+              <div style={{ fontSize: '12px', color: 'var(--color-error)', padding: '6px 8px', borderRadius: '4px', backgroundColor: 'var(--color-error-bg)' }}>
+                {assignError}
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
@@ -1442,16 +1587,16 @@ export default function HandoverCaseDetailPage() {
             </div>
 
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowAssignModal(false)}>
+              <button className={styles.cancelBtn} onClick={closeAssignModal}>
                 Cancel
               </button>
               <button
                 className={`${styles.btnActionSm} ${styles.btnActionPrimary}`}
                 style={{ padding: '8px 16px', fontSize: '13px' }}
-                disabled={!assignUserId || assignResponsibilityMutation.isPending}
+                disabled={!assignUserId || !(packs && packs.length > 0) || assignResponsibilityMutation.isPending}
                 onClick={() =>
                   assignResponsibilityMutation.mutate({
-                    transfer_pack_id: assignPackId || packs[0].id,
+                    transfer_pack_id: assignPackId || packs?.[0]?.id,
                     assigned_user_id: assignUserId,
                     handover_version_id: versions?.[0]?.id,
                   })

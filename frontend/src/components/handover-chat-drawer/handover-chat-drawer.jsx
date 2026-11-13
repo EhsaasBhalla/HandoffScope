@@ -10,6 +10,7 @@ import {
   Send,
   ShieldCheck,
   X,
+  Loader2,
 } from 'lucide-react';
 import { ragApi } from '../../api/rag.api';
 import styles from './handover-chat-drawer.module.css';
@@ -39,7 +40,9 @@ export function HandoverChatDrawer({
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (onClose) onClose();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -47,13 +50,13 @@ export function HandoverChatDrawer({
 
   const { data: threads } = useQuery({
     queryKey: ['rag-threads', caseId],
-    queryFn: () => ragApi.listThreads(caseId),
+    queryFn: () => (caseId ? ragApi.listThreads(caseId) : []),
     enabled: isOpen && !!caseId,
   });
 
   const { data: threadDetail, isLoading: threadLoading } = useQuery({
     queryKey: ['rag-thread-detail', caseId, selectedThreadId],
-    queryFn: () => ragApi.getThread(caseId, selectedThreadId),
+    queryFn: () => (caseId && selectedThreadId ? ragApi.getThread(caseId, selectedThreadId) : null),
     enabled: isOpen && !!caseId && !!selectedThreadId,
   });
 
@@ -85,7 +88,7 @@ export function HandoverChatDrawer({
 
   const handleSubmit = (qText) => {
     const trimmed = (qText ?? questionInput).trim();
-    if (!trimmed || askMutation.isPending || isDisabledForRecipient) return;
+    if (!trimmed || askMutation.isPending || isDisabledForRecipient || !caseId) return;
     setErrorMsg('');
     askMutation.mutate({
       question: trimmed,
@@ -94,14 +97,22 @@ export function HandoverChatDrawer({
     });
   };
 
+  const messageList = Array.isArray(threadDetail?.messages) ? threadDetail.messages : [];
+
   return (
-    <div className={styles.backdrop} onClick={onClose} role="dialog" aria-modal="true" aria-label="Ask the Handover assistant">
+    <div
+      className={styles.backdrop}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="handover-chat-title"
+    >
       <div className={styles.drawer} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <div className={styles.headerTitleWrap}>
             <div className={styles.titleRow}>
               <BookOpen size={18} style={{ color: 'var(--color-accent-text)' }} />
-              <h3 className={styles.title}>Ask the Handover</h3>
+              <h3 id="handover-chat-title" className={styles.title}>Ask the Handover</h3>
             </div>
             <span className={`${styles.contextBadge} ${isApprovedBadge ? styles.badgeApproved : styles.badgeDraft}`}>
               <ShieldCheck size={11} />
@@ -127,7 +138,7 @@ export function HandoverChatDrawer({
             {(threads || []).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.pinned_version_number ? `[v${t.pinned_version_number}] ` : '[Draft] '}
-                {t.title} ({t.message_count})
+                {t.title} ({t.message_count ?? 0})
               </option>
             ))}
           </select>
@@ -155,7 +166,7 @@ export function HandoverChatDrawer({
             </div>
           ) : selectedThreadId && threadLoading ? (
             <div className={styles.emptyHint}>Loading conversation history…</div>
-          ) : !threadDetail?.messages?.length ? (
+          ) : !messageList.length ? (
             <div className={styles.emptyState}>
               <div className={styles.emptyTitle}>
                 <MessageSquare size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
@@ -179,7 +190,7 @@ export function HandoverChatDrawer({
               </div>
             </div>
           ) : (
-            threadDetail.messages.map((m) => {
+            messageList.map((m) => {
               const isUser = m.role === 'user';
               const gClass =
                 m.grounding_status === 'ANSWERED'
@@ -209,9 +220,9 @@ export function HandoverChatDrawer({
 
                   {!isUser && Array.isArray(m.citations) && m.citations.length > 0 && (
                     <div className={styles.citationsWrap}>
-                      {m.citations.map((cit) => (
+                      {m.citations.map((cit, citIdx) => (
                         <button
-                          key={cit.chunk_id}
+                          key={cit.chunk_id || citIdx}
                           type="button"
                           className={styles.citationPill}
                           onClick={() =>
@@ -250,7 +261,7 @@ export function HandoverChatDrawer({
                 <a
                   href={selectedCitation.url}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}
                 >
                   Open Source Reference <ExternalLink size={11} />
@@ -295,7 +306,11 @@ export function HandoverChatDrawer({
             className={styles.sendBtn}
             disabled={isDisabledForRecipient || askMutation.isPending || !questionInput.trim()}
           >
-            <Send size={14} />
+            {askMutation.isPending ? (
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <Send size={14} />
+            )}
             {askMutation.isPending ? 'Thinking…' : 'Ask'}
           </button>
         </form>

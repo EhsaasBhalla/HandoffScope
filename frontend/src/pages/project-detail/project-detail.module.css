@@ -110,7 +110,7 @@
   color: var(--color-text-primary);
 }
 
-.activeTab {
+.activeTab, .tabBtnActive {
   color: var(--color-accent-text);
   border-bottom-color: var(--color-accent);
 }
@@ -125,26 +125,46 @@
   gap: var(--space-lg);
 }
 
-.statBox {
+.statsCard, .statBox {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
   padding: var(--space-xl);
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
 }
 
-.statNum {
-  font-size: var(--text-3xl);
-  font-weight: var(--weight-bold);
-  color: var(--color-text-primary);
+.statsIconWrap {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.statLabel {
+.statsContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.statsValue, .statNum {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+}
+
+.statsLabel, .statLabel {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   text-transform: uppercase;
-  margin-top: var(--space-xs);
+  letter-spacing: 0.05em;
+  font-weight: var(--weight-medium);
 }
 
 .tabSectionHeader {
@@ -160,10 +180,10 @@
   gap: var(--space-sm);
 }
 
-.caseItem {
+.caseCard, .caseItem {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-xs);
   padding: var(--space-md) var(--space-xl);
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border-subtle);
@@ -172,9 +192,40 @@
   transition: border-color var(--transition-fast);
 }
 
-.caseItem:hover {
+.caseCard:hover, .caseItem:hover {
   border-color: var(--color-accent);
   text-decoration: none;
+}
+
+.caseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.caseStatus {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+}
+
+.caseDescription {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: var(--leading-normal);
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .caseItemLeft {

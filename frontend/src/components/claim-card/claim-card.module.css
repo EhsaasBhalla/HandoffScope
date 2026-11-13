@@ -218,3 +218,12 @@
   color: #fca5a5;
 }
 
+.actionError {
+  font-size: 12px;
+  color: var(--color-error);
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import styles from './login.module.css';
 
@@ -10,6 +10,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from?.pathname;
+  const targetDestination = (from && from !== '/login')
+    ? `${from}${location.state?.from?.search || ''}`
+    : '/';
 
   async function quickLogin(targetEmail, targetPass) {
     setEmail(targetEmail);
@@ -19,7 +25,7 @@ export default function LoginPage() {
 
     try {
       await login(targetEmail, targetPass);
-      navigate('/', { replace: true });
+      navigate(targetDestination, { replace: true });
     } catch (err) {
       const msg = err.data?.error?.message || err.data?.detail || err.message || 'Login failed';
       setError(msg);
@@ -35,7 +41,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      navigate('/', { replace: true });
+      navigate(targetDestination, { replace: true });
     } catch (err) {
       const msg = err.data?.error?.message || err.data?.detail || err.message || 'Login failed';
       setError(msg);

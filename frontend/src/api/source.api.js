@@ -44,10 +44,12 @@ export const githubApi = {
   },
 
   getStatus(workspaceId) {
-    return httpClient.get(`/api/v1/github/status?workspace_id=${workspaceId}`);
+    const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+    return httpClient.get(`/api/v1/github/status${query}`);
   },
 
   disconnect(workspaceId) {
-    return httpClient.delete(`/api/v1/github/disconnect?workspace_id=${workspaceId}`);
+    const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+    return httpClient.delete(`/api/v1/github/disconnect${query}`);
   },
 };

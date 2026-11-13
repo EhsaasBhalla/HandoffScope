@@ -61,16 +61,29 @@ export function useCaseLiveUpdates(caseId, { enabled = true } = {}) {
       }
     };
 
+    const invalidateAll = () => {
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+    };
+
+    const stopPolling = () => {
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+
     const startPollingFallback = () => {
       if (cancelled || timerRef.current) return;
       setMode('polling');
+      // Refresh immediately on fallback so data isn't stale for 20s
+      invalidateAll();
       timerRef.current = window.setInterval(() => {
-        if (document.visibilityState === 'hidden') return;
-        queryClient.invalidateQueries({ queryKey: ['case', caseId] });
-        queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
-        queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
-        queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
-        queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', caseId] });
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        invalidateAll();
       }, POLL_FALLBACK_MS);
     };
 
@@ -82,7 +95,8 @@ export function useCaseLiveUpdates(caseId, { enabled = true } = {}) {
 
       try {
         const res = await httpClient.post(`/api/v1/cases/${caseId}/events/ticket`);
-        if (cancelled || !res?.ticket) {
+        if (cancelled) return;
+        if (!res?.ticket) {
           startPollingFallback();
           return;
         }
@@ -93,6 +107,7 @@ export function useCaseLiveUpdates(caseId, { enabled = true } = {}) {
 
         eventSource.addEventListener('connected', () => {
           if (!cancelled) {
+            stopPolling();
             setMode('live');
           }
         });
@@ -111,14 +126,28 @@ export function useCaseLiveUpdates(caseId, { enabled = true } = {}) {
             eventSource.close();
             eventSource = null;
           }
-          startPollingFallback();
+          if (!cancelled) {
+            startPollingFallback();
+          }
         };
       } catch {
-        startPollingFallback();
+        if (!cancelled) {
+          startPollingFallback();
+        }
       }
     };
 
     connect();
+
+    // Reconnection listener: when coming back online, attempt to upgrade back to SSE if polling
+    const handleOnline = () => {
+      if (!cancelled && !eventSource) {
+        connect();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+    }
 
     return () => {
       cancelled = true;
@@ -126,9 +155,9 @@ export function useCaseLiveUpdates(caseId, { enabled = true } = {}) {
         eventSource.close();
         eventSource = null;
       }
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current);
-        timerRef.current = null;
+      stopPolling();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline);
       }
     };
   }, [caseId, enabled, queryClient]);

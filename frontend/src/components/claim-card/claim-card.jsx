@@ -37,31 +37,40 @@ export function ClaimCard({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
+  const [isMovingPack, setIsMovingPack] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(claim.title);
-  const [editBody, setEditBody] = useState(claim.body_text || '');
-  const [editPriority, setEditPriority] = useState(claim.priority || 'MEDIUM');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [actionError, setActionError] = useState(null);
+
+  const [editTitle, setEditTitle] = useState(claim?.title || '');
+  const [editBody, setEditBody] = useState(claim?.body_text || '');
+  const [editPriority, setEditPriority] = useState(claim?.priority || 'MEDIUM');
 
   // Review action modal/input state
   const [reviewMode, setReviewMode] = useState(null); // 'reject' | 'clarify' | 'edit_and_accept'
   const [reviewReason, setReviewReason] = useState('');
-  const [reviewEditedBody, setReviewEditedBody] = useState(claim.body_text || '');
+  const [reviewEditedBody, setReviewEditedBody] = useState(claim?.body_text || '');
   const [showOriginal, setShowOriginal] = useState(false);
 
   // Sync edit form state when claim prop changes
   useEffect(() => {
-    setEditTitle(claim.title);
+    if (!claim) return;
+    setEditTitle(claim.title || '');
     setEditBody(claim.body_text || '');
     setEditPriority(claim.priority || 'MEDIUM');
     setReviewEditedBody(claim.body_text || '');
-  }, [claim.id, claim.title, claim.body_text, claim.priority]);
+    setActionError(null);
+  }, [claim?.id, claim?.title, claim?.body_text, claim?.priority]);
 
   // Fetch full evidence items if expanded
   const { data: claimDetail, isLoading: evidenceLoading } = useQuery({
-    queryKey: ['claim-detail', claim.id],
-    queryFn: () => evidenceApi.getClaim(claim.id),
-    enabled: isExpanded,
+    queryKey: ['claim-detail', claim?.id],
+    queryFn: () => (claim?.id ? evidenceApi.getClaim(claim.id) : null),
+    enabled: Boolean(isExpanded && claim?.id),
   });
+
+  if (!claim) return null;
 
   const renderTypeIcon = (type) => {
     switch ((type || '').toUpperCase()) {
@@ -84,53 +93,83 @@ export function ClaimCard({
     }
   };
 
-  const handleSaveEdit = async () => {
-    if (onUpdateClaim) {
+  const handleSaveEdit = async (e) => {
+    if (e) e.stopPropagation();
+    if (!onUpdateClaim || isSaving) return;
+    if (!editTitle.trim()) {
+      setActionError('Title cannot be empty.');
+      return;
+    }
+    setActionError(null);
+    setIsSaving(true);
+    try {
       await onUpdateClaim(claim.id, {
-        title: editTitle,
-        body_text: editBody,
+        title: editTitle.trim(),
+        body_text: editBody.trim(),
         priority: editPriority,
       });
+      setIsEditing(false);
+    } catch (err) {
+      setActionError(err?.data?.detail || err?.message || 'Failed to update claim');
+    } finally {
+      setIsSaving(false);
     }
-    setIsEditing(false);
   };
 
   const handleMoveSelect = async (e) => {
+    e.stopPropagation();
     const targetPackId = e.target.value;
-    if (targetPackId && onMoveClaim) {
-      await onMoveClaim(claim.id, targetPackId);
+    if (targetPackId && onMoveClaim && !isMovingPack) {
+      setActionError(null);
+      setIsMovingPack(true);
+      try {
+        await onMoveClaim(claim.id, targetPackId);
+        setIsMoving(false);
+      } catch (err) {
+        setActionError(err?.data?.detail || err?.message || 'Failed to move claim');
+      } finally {
+        setIsMovingPack(false);
+      }
+    } else {
+      setIsMoving(false);
     }
-    setIsMoving(false);
   };
 
-  const handleExecuteReview = async (action) => {
-    if (!onReviewClaim) return;
+  const handleExecuteReview = async (action, e) => {
+    if (e) e.stopPropagation();
+    if (!onReviewClaim || isReviewing) return;
+    setActionError(null);
     try {
       if (action === 'accept') {
+        setIsReviewing(true);
         await onReviewClaim(claim.id, { action: 'accept' });
       } else if (action === 'resubmit') {
+        setIsReviewing(true);
         await onReviewClaim(claim.id, { action: 'resubmit' });
       } else if (action === 'reject') {
         if (!reviewReason.trim()) {
-          alert('A reason is required to reject a claim.');
+          setActionError('A reason is required to reject a claim.');
           return;
         }
+        setIsReviewing(true);
         await onReviewClaim(claim.id, { action: 'reject', reason: reviewReason.trim() });
         setReviewMode(null);
         setReviewReason('');
       } else if (action === 'needs_clarification') {
         if (!reviewReason.trim()) {
-          alert('Clarification details are required.');
+          setActionError('Clarification details are required.');
           return;
         }
+        setIsReviewing(true);
         await onReviewClaim(claim.id, { action: 'needs_clarification', reason: reviewReason.trim() });
         setReviewMode(null);
         setReviewReason('');
       } else if (action === 'edit_and_accept') {
         if (!reviewEditedBody.trim()) {
-          alert('Edited body text cannot be empty.');
+          setActionError('Edited body text cannot be empty.');
           return;
         }
+        setIsReviewing(true);
         await onReviewClaim(claim.id, {
           action: 'edit_and_accept',
           edited_body: reviewEditedBody.trim(),
@@ -140,13 +179,15 @@ export function ClaimCard({
         setReviewReason('');
       }
     } catch (err) {
-      alert(err?.data?.detail || err?.message || 'Review action failed');
+      setActionError(err?.data?.detail || err?.message || 'Review action failed');
+    } finally {
+      setIsReviewing(false);
     }
   };
 
   const evidenceItems = claimDetail?.evidence || [];
   const evCount = claim.evidence_count ?? evidenceItems.length;
-  const targetPacks = availablePacks.filter((p) => p.id !== claim.transfer_pack_id);
+  const targetPacks = (availablePacks || []).filter((p) => p && p.id !== claim.transfer_pack_id);
 
   return (
     <div className={styles.card}>
@@ -155,7 +196,7 @@ export function ClaimCard({
           <div className={styles.typeIconWrap}>
             {renderTypeIcon(claim.claim_type)}
           </div>
-          <span className={styles.typeLabel}>{claim.claim_type?.replace('_', ' ')}</span>
+          <span className={styles.typeLabel}>{(claim.claim_type || '').replaceAll('_', ' ')}</span>
         </div>
 
         <div className={styles.badgesRow}>
@@ -175,9 +216,15 @@ export function ClaimCard({
                   onChange={handleMoveSelect}
                   defaultValue=""
                   autoFocus
-                  onBlur={() => setIsMoving(false)}
+                  disabled={isMovingPack}
+                  onBlur={() => {
+                    if (!isMovingPack) setIsMoving(false);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <option value="" disabled>Move to Pack...</option>
+                  <option value="" disabled>
+                    {isMovingPack ? 'Moving claim…' : 'Move to Pack...'}
+                  </option>
                   {targetPacks.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -186,8 +233,12 @@ export function ClaimCard({
                 </select>
               ) : (
                 <button
+                  type="button"
                   className={styles.actionBtn}
-                  onClick={() => setIsMoving(true)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMoving(true);
+                  }}
                   title="Move claim to another Transfer Pack"
                 >
                   <FolderInput size={12} /> Move
@@ -197,8 +248,12 @@ export function ClaimCard({
 
             {onUpdateClaim && !isEditing && (
               <button
+                type="button"
                 className={styles.actionBtn}
-                onClick={() => setIsEditing(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditing(true);
+                }}
                 title="Edit claim details"
               >
                 <Edit2 size={12} /> Edit
@@ -208,11 +263,21 @@ export function ClaimCard({
         </div>
       </div>
 
+      {actionError && (
+        <div className={styles.actionError} onClick={(e) => e.stopPropagation()}>
+          {actionError}
+        </div>
+      )}
+
       {isEditing ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div
+          style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <input
             type="text"
             value={editTitle}
+            disabled={isSaving}
             onChange={(e) => setEditTitle(e.target.value)}
             style={{
               padding: '6px 8px',
@@ -227,6 +292,7 @@ export function ClaimCard({
           <textarea
             rows={3}
             value={editBody}
+            disabled={isSaving}
             onChange={(e) => setEditBody(e.target.value)}
             style={{
               padding: '6px 8px',
@@ -240,6 +306,7 @@ export function ClaimCard({
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end' }}>
             <select
               value={editPriority}
+              disabled={isSaving}
               onChange={(e) => setEditPriority(e.target.value)}
               className={styles.moveSelect}
             >
@@ -249,17 +316,25 @@ export function ClaimCard({
               <option value="LOW">Low</option>
             </select>
             <button
+              type="button"
               className={styles.actionBtn}
-              onClick={() => setIsEditing(false)}
+              disabled={isSaving}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditing(false);
+                setActionError(null);
+              }}
             >
               <X size={12} /> Cancel
             </button>
             <button
+              type="button"
               className={styles.actionBtn}
               style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+              disabled={isSaving}
               onClick={handleSaveEdit}
             >
-              <Check size={12} /> Save
+              <Check size={12} /> {isSaving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -272,6 +347,7 @@ export function ClaimCard({
           {claim.original_body_text && (
             <div style={{ marginTop: '4px' }}>
               <button
+                type="button"
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -283,7 +359,10 @@ export function ClaimCard({
                   alignItems: 'center',
                   gap: '4px',
                 }}
-                onClick={() => setShowOriginal(!showOriginal)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOriginal(!showOriginal);
+                }}
               >
                 <History size={11} /> {showOriginal ? 'Hide Original Text' : 'View Original Pre-Edit Text'}
               </button>
@@ -306,7 +385,7 @@ export function ClaimCard({
 
       {/* Review Actions Toolbar */}
       {(enableReview || onReviewClaim) && (
-        <div className={styles.reviewToolbar}>
+        <div className={styles.reviewToolbar} onClick={(e) => e.stopPropagation()}>
           <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Review:
           </span>
@@ -316,6 +395,7 @@ export function ClaimCard({
               {reviewMode === 'edit_and_accept' && (
                 <textarea
                   rows={3}
+                  disabled={isReviewing}
                   value={reviewEditedBody}
                   onChange={(e) => setReviewEditedBody(e.target.value)}
                   placeholder="Edit claim body text..."
@@ -331,6 +411,7 @@ export function ClaimCard({
               )}
               <input
                 type="text"
+                disabled={isReviewing}
                 value={reviewReason}
                 onChange={(e) => setReviewReason(e.target.value)}
                 placeholder={
@@ -350,10 +431,22 @@ export function ClaimCard({
                 }}
               />
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button className={styles.actionBtn} onClick={() => { setReviewMode(null); setReviewReason(''); }}>
+                <button
+                  type="button"
+                  className={styles.actionBtn}
+                  disabled={isReviewing}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReviewMode(null);
+                    setReviewReason('');
+                    setActionError(null);
+                  }}
+                >
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  disabled={isReviewing}
                   className={`${styles.actionBtn} ${
                     reviewMode === 'reject'
                       ? styles.reviewBtnReject
@@ -361,9 +454,9 @@ export function ClaimCard({
                       ? styles.reviewBtnClarify
                       : styles.reviewBtnAccept
                   }`}
-                  onClick={() => handleExecuteReview(reviewMode === 'clarify' ? 'needs_clarification' : reviewMode)}
+                  onClick={(e) => handleExecuteReview(reviewMode === 'clarify' ? 'needs_clarification' : reviewMode, e)}
                 >
-                  <Check size={12} /> Confirm {reviewMode.replace('_', ' ')}
+                  <Check size={12} /> {isReviewing ? 'Saving…' : `Confirm ${reviewMode.replaceAll('_', ' ')}`}
                 </button>
               </div>
             </div>
@@ -371,8 +464,10 @@ export function ClaimCard({
             <>
               {claim.review_state !== 'ACCEPTED' && (
                 <button
+                  type="button"
+                  disabled={isReviewing}
                   className={`${styles.actionBtn} ${styles.reviewBtnAccept}`}
-                  onClick={() => handleExecuteReview('accept')}
+                  onClick={(e) => handleExecuteReview('accept', e)}
                   title="Accept claim as-is"
                 >
                   <CheckCircle2 size={12} /> Accept
@@ -380,10 +475,14 @@ export function ClaimCard({
               )}
 
               <button
+                type="button"
+                disabled={isReviewing}
                 className={`${styles.actionBtn} ${styles.reviewBtnAccept}`}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setReviewMode('edit_and_accept');
                   setReviewEditedBody(claim.body_text || '');
+                  setActionError(null);
                 }}
                 title="Modify body and accept claim"
               >
@@ -392,8 +491,14 @@ export function ClaimCard({
 
               {claim.review_state !== 'REJECTED' && (
                 <button
+                  type="button"
+                  disabled={isReviewing}
                   className={`${styles.actionBtn} ${styles.reviewBtnReject}`}
-                  onClick={() => setReviewMode('reject')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReviewMode('reject');
+                    setActionError(null);
+                  }}
                   title="Reject claim with reason"
                 >
                   <XCircle size={12} /> Reject
@@ -402,8 +507,14 @@ export function ClaimCard({
 
               {claim.review_state !== 'NEEDS_CLARIFICATION' && (
                 <button
+                  type="button"
+                  disabled={isReviewing}
                   className={`${styles.actionBtn} ${styles.reviewBtnClarify}`}
-                  onClick={() => setReviewMode('clarify')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReviewMode('clarify');
+                    setActionError(null);
+                  }}
                   title="Request clarification (creates question)"
                 >
                   <HelpCircle size={12} /> Clarify
@@ -412,8 +523,10 @@ export function ClaimCard({
 
               {(claim.review_state === 'REJECTED' || claim.review_state === 'NEEDS_CLARIFICATION') && (
                 <button
+                  type="button"
+                  disabled={isReviewing}
                   className={styles.actionBtn}
-                  onClick={() => handleExecuteReview('resubmit')}
+                  onClick={(e) => handleExecuteReview('resubmit', e)}
                   title="Resubmit for review"
                 >
                   <RotateCcw size={12} /> Resubmit
@@ -430,8 +543,12 @@ export function ClaimCard({
         </span>
 
         <button
+          type="button"
           className={styles.expandBtn}
-          onClick={() => setIsExpanded((prev) => !prev)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded((prev) => !prev);
+          }}
         >
           {isExpanded ? (
             <>
@@ -446,7 +563,7 @@ export function ClaimCard({
       </div>
 
       {isExpanded && (
-        <div className={styles.evidenceDrawer}>
+        <div className={styles.evidenceDrawer} onClick={(e) => e.stopPropagation()}>
           <h5 className={styles.drawerTitle}>Grounded Source Citations</h5>
           {evidenceLoading ? (
             <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', padding: '0.5rem 0' }}>

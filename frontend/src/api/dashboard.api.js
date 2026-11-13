@@ -7,7 +7,7 @@ import { httpClient } from './httpClient';
 export const dashboardApi = {
   getStats(workspaceId = null) {
     const url = workspaceId
-      ? `/api/v1/dashboard/stats?workspace_id=${workspaceId}`
+      ? `/api/v1/dashboard/stats?workspace_id=${encodeURIComponent(workspaceId)}`
       : '/api/v1/dashboard/stats';
     return httpClient.get(url);
   },

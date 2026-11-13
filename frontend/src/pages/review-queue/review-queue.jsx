@@ -1,23 +1,21 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   CheckSquare,
   ShieldCheck,
-  AlertTriangle,
   CheckCircle2,
   Clock,
   HelpCircle,
   XCircle,
-  FolderKanban,
   FileCheck2,
   Layers,
   History,
   X,
   Eye,
   Search,
-  Filter,
   ArrowRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { httpClient } from '../../api/httpClient';
 import { reviewApi } from '../../api/review.api';
@@ -58,8 +56,13 @@ export default function ReviewQueuePage() {
   const [packFilter, setPackFilter] = useState('ALL');
   const [searchText, setSearchText] = useState('');
 
-  // Modals state
+  // Modals & bulk actions state
   const [inspectSnapshot, setInspectSnapshot] = useState(null);
+  const [selectedClaimIds, setSelectedClaimIds] = useState([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [reviewNotesModal, setReviewNotesModal] = useState(null); // { mode: 'bulk_reject' | 'bulk_clarify', targetIds: [] }
+  const [reviewNotesText, setReviewNotesText] = useState('');
 
   // 1. Fetch available workspaces and cases across projects
   useEffect(() => {
@@ -81,7 +84,10 @@ export default function ReviewQueuePage() {
             }
           }
           setCasesList(all);
-          if (!selectedCaseId && all.length > 0) {
+          const urlCase = searchParams.get('caseId');
+          if (urlCase && all.some((c) => c.id === urlCase)) {
+            setSelectedCaseId(urlCase);
+          } else if (!selectedCaseId && all.length > 0) {
             setSelectedCaseId(all[0].id);
           }
         }
@@ -91,6 +97,18 @@ export default function ReviewQueuePage() {
     }
     loadCases();
   }, []);
+
+  useEffect(() => {
+    const urlCaseId = searchParams.get('caseId');
+    if (urlCaseId && urlCaseId !== selectedCaseId) {
+      setSelectedCaseId(urlCaseId);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    setSelectedClaimIds([]);
+    setActionError(null);
+  }, [selectedCaseId, reviewFilter, evidenceFilter, packFilter, searchText]);
 
   const handleCaseChange = (e) => {
     const newCaseId = e.target.value;
@@ -130,6 +148,7 @@ export default function ReviewQueuePage() {
   const reviewMutation = useMutation({
     mutationFn: ({ claimId, data }) => reviewApi.reviewClaim(claimId, data),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
@@ -137,7 +156,9 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Review action failed');
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Review action failed';
+      setActionError(msg);
+      alert(msg);
     },
   });
 
@@ -145,10 +166,13 @@ export default function ReviewQueuePage() {
   const updateClaimMutation = useMutation({
     mutationFn: ({ claimId, data }) => evidenceApi.updateClaim(claimId, data),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Update claim failed');
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Update claim failed';
+      setActionError(msg);
+      alert(msg);
     },
   });
 
@@ -157,11 +181,14 @@ export default function ReviewQueuePage() {
     mutationFn: ({ claimId, targetPackId }) =>
       transferPackApi.moveClaims(targetPackId, claimId),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Move claim failed');
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Move claim failed';
+      setActionError(msg);
+      alert(msg);
     },
   });
 
@@ -169,6 +196,7 @@ export default function ReviewQueuePage() {
   const createVersionMutation = useMutation({
     mutationFn: (data) => reviewApi.createVersion(selectedCaseId, data),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ['case-versions', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
@@ -178,13 +206,15 @@ export default function ReviewQueuePage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
     onError: (err) => {
-      alert(err.data?.detail || err.data?.error?.message || err.message || 'Failed to approve version');
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Failed to approve version';
+      setActionError(msg);
+      alert(msg);
     },
   });
 
   // Filtered Claims
   const filteredClaims = useMemo(() => {
-    if (!claims) return [];
+    if (!Array.isArray(claims)) return [];
     return claims.filter((c) => {
       if (reviewFilter !== 'ALL' && c.review_state !== reviewFilter) return false;
       if (evidenceFilter !== 'ALL' && c.evidence_state !== evidenceFilter) return false;
@@ -198,6 +228,80 @@ export default function ReviewQueuePage() {
       return true;
     });
   }, [claims, reviewFilter, evidenceFilter, packFilter, searchText]);
+
+  // Bulk Selection Handlers
+  const toggleSelectClaim = useCallback((claimId) => {
+    setSelectedClaimIds((prev) =>
+      prev.includes(claimId) ? prev.filter((id) => id !== claimId) : [...prev, claimId]
+    );
+  }, []);
+
+  const handleSelectAllFiltered = useCallback(() => {
+    if (selectedClaimIds.length === filteredClaims.length) {
+      setSelectedClaimIds([]);
+    } else {
+      setSelectedClaimIds(filteredClaims.map((c) => c.id));
+    }
+  }, [selectedClaimIds.length, filteredClaims]);
+
+  const handleBulkApprove = async () => {
+    if (selectedClaimIds.length === 0) return;
+    setBulkActionLoading(true);
+    setActionError(null);
+    try {
+      await Promise.all(
+        selectedClaimIds.map((claimId) => reviewApi.reviewClaim(claimId, { action: 'accept' }))
+      );
+      setSelectedClaimIds([]);
+      queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (err) {
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Bulk approve failed';
+      setActionError(msg);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleOpenBulkNotesModal = (mode) => {
+    if (selectedClaimIds.length === 0) return;
+    setReviewNotesText('');
+    setReviewNotesModal({ mode, targetIds: [...selectedClaimIds] });
+  };
+
+  const handleConfirmReviewNotes = async () => {
+    if (!reviewNotesModal) return;
+    if (!reviewNotesText.trim()) {
+      alert('Review notes / reason is required.');
+      return;
+    }
+    const { mode, targetIds } = reviewNotesModal;
+    const action = mode === 'bulk_reject' ? 'reject' : 'needs_clarification';
+    setBulkActionLoading(true);
+    setActionError(null);
+    try {
+      await Promise.all(
+        targetIds.map((claimId) =>
+          reviewApi.reviewClaim(claimId, { action, reason: reviewNotesText.trim() })
+        )
+      );
+      setSelectedClaimIds([]);
+      setReviewNotesModal(null);
+      setReviewNotesText('');
+      queryClient.invalidateQueries({ queryKey: ['case-claims', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-questions', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (err) {
+      const msg = err.data?.detail || err.data?.error?.message || err.message || 'Bulk review action failed';
+      setActionError(msg);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
 
   const handleInspectVersion = async (versionId) => {
     try {
@@ -242,6 +346,23 @@ export default function ReviewQueuePage() {
           </select>
         </div>
       </div>
+
+      {/* Action Error Banner */}
+      {actionError && (
+        <div className={styles.errorBanner}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={16} />
+            <span>{actionError}</span>
+          </div>
+          <button
+            className={styles.closeBtn}
+            onClick={() => setActionError(null)}
+            title="Dismiss error"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Summary Stats Grid */}
       <div className={styles.statsGrid}>
@@ -376,9 +497,63 @@ export default function ReviewQueuePage() {
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
             />
+            {searchText && (
+              <button
+                className={styles.clearSearchBtn}
+                onClick={() => setSearchText('')}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+            {filteredClaims.length > 0 && (
+              <button
+                className={styles.filterChip}
+                onClick={handleSelectAllFiltered}
+                style={{ fontWeight: 600, marginLeft: '8px' }}
+                title="Select all currently visible filtered claims"
+              >
+                {selectedClaimIds.length === filteredClaims.length ? 'Deselect All' : `Select All (${filteredClaims.length})`}
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Bulk Actions Floating Toolbar */}
+      {selectedClaimIds.length > 0 && (
+        <div className={styles.bulkActionBar}>
+          <div className={styles.bulkActionInfo}>
+            <CheckSquare size={16} />
+            <span>{selectedClaimIds.length} claim{selectedClaimIds.length === 1 ? '' : 's'} selected</span>
+          </div>
+          <div className={styles.bulkActionBtns}>
+            <button
+              className={styles.bulkApproveBtn}
+              onClick={handleBulkApprove}
+              disabled={bulkActionLoading}
+              title="Bulk approve selected claims"
+            >
+              <CheckCircle2 size={13} /> {bulkActionLoading ? 'Processing…' : 'Bulk Approve'}
+            </button>
+            <button
+              className={styles.bulkRejectBtn}
+              onClick={() => handleOpenBulkNotesModal('bulk_reject')}
+              disabled={bulkActionLoading}
+              title="Bulk reject selected claims with review notes"
+            >
+              <XCircle size={13} /> Bulk Reject
+            </button>
+            <button
+              className={styles.bulkClearBtn}
+              onClick={() => setSelectedClaimIds([])}
+              title="Clear selection"
+            >
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Claims List */}
       {claimsLoading ? (
@@ -390,19 +565,44 @@ export default function ReviewQueuePage() {
           <Layers size={36} />
           <h3>No Claims Match Filters</h3>
           <p>Change your filter criteria or select another review state above.</p>
+          {(reviewFilter !== 'ALL' || evidenceFilter !== 'ALL' || packFilter !== 'ALL' || searchText) && (
+            <button
+              className={styles.clearFiltersBtn}
+              onClick={() => {
+                setReviewFilter('ALL');
+                setEvidenceFilter('ALL');
+                setPackFilter('ALL');
+                setSearchText('');
+              }}
+            >
+              Reset All Filters
+            </button>
+          )}
         </div>
       ) : (
         <div className={styles.claimsList}>
           {filteredClaims.map((claim) => (
-            <ClaimCard
-              key={claim.id}
-              claim={claim}
-              availablePacks={casePacks || []}
-              enableReview={true}
-              onReviewClaim={(claimId, data) => reviewMutation.mutateAsync({ claimId, data })}
-              onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
-              onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
-            />
+            <div key={claim.id} className={styles.claimRowWrap}>
+              <div className={styles.claimCheckboxWrap}>
+                <input
+                  type="checkbox"
+                  className={styles.claimCheckbox}
+                  checked={selectedClaimIds.includes(claim.id)}
+                  onChange={() => toggleSelectClaim(claim.id)}
+                  aria-label={`Select claim ${claim.title}`}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <ClaimCard
+                  claim={claim}
+                  availablePacks={casePacks || []}
+                  enableReview={true}
+                  onReviewClaim={(claimId, data) => reviewMutation.mutateAsync({ claimId, data })}
+                  onUpdateClaim={(claimId, data) => updateClaimMutation.mutateAsync({ claimId, data })}
+                  onMoveClaim={(claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId })}
+                />
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -430,7 +630,7 @@ export default function ReviewQueuePage() {
           )}
         </div>
 
-        {!versions || versions.length === 0 ? (
+        {!Array.isArray(versions) || versions.length === 0 ? (
           <div className={styles.emptyState} style={{ padding: '2rem' }}>
             <ShieldCheck size={28} />
             <p>No immutable versions have been approved for this case yet.</p>
@@ -451,7 +651,7 @@ export default function ReviewQueuePage() {
                   <div className={styles.versionMeta}>
                     <span>Approved by {v.approved_by_name || 'Reviewer'}</span>
                     <span>•</span>
-                    <span>{new Date(v.approved_at).toLocaleString()}</span>
+                    <span>{v.approved_at ? new Date(v.approved_at).toLocaleString() : '—'}</span>
                     <span>•</span>
                     <span>{v.total_packs} Packs</span>
                     <span>•</span>
@@ -494,7 +694,7 @@ export default function ReviewQueuePage() {
 
             <div className={styles.modalBody}>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                Approved at: {new Date(inspectSnapshot.approved_at).toLocaleString()} by {inspectSnapshot.approved_by_name}
+                Approved at: {inspectSnapshot.approved_at ? new Date(inspectSnapshot.approved_at).toLocaleString() : '—'} by {inspectSnapshot.approved_by_name}
               </div>
               <pre className={styles.jsonViewer}>
                 {JSON.stringify(inspectSnapshot.snapshot_json, null, 2)}
@@ -507,6 +707,52 @@ export default function ReviewQueuePage() {
                 onClick={() => setInspectSnapshot(null)}
               >
                 Close Snapshot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Notes Modal for Bulk Actions */}
+      {reviewNotesModal && (
+        <div className={styles.modalOverlay} onClick={() => setReviewNotesModal(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>
+                {reviewNotesModal.mode === 'bulk_reject' ? 'Bulk Reject Claims' : 'Bulk Request Clarification'}
+              </h3>
+              <button className={styles.closeBtn} onClick={() => setReviewNotesModal(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                Applying review decision to {reviewNotesModal.targetIds.length} selected claim(s). Please provide review notes / justification:
+              </p>
+              <textarea
+                className={styles.notesTextarea}
+                rows={4}
+                placeholder="Enter review notes and rejection rationale..."
+                value={reviewNotesText}
+                onChange={(e) => setReviewNotesText(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.bulkClearBtn}
+                onClick={() => setReviewNotesModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={reviewNotesModal.mode === 'bulk_reject' ? styles.bulkRejectBtn : styles.bulkApproveBtn}
+                onClick={handleConfirmReviewNotes}
+                disabled={bulkActionLoading || !reviewNotesText.trim()}
+              >
+                {bulkActionLoading ? 'Submitting…' : 'Confirm Review'}
               </button>
             </div>
           </div>

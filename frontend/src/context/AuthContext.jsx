@@ -29,24 +29,35 @@ export function AuthProvider({ children }) {
         setUser(null);
       }
     };
-    window.addEventListener('handoffscope:auth-expired', handleExpired);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('handoffscope:auth-expired', handleExpired);
+    }
     return () => {
       cancelled = true;
-      window.removeEventListener('handoffscope:auth-expired', handleExpired);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('handoffscope:auth-expired', handleExpired);
+      }
     };
   }, [queryClient]);
 
   const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password);
     queryClient.clear();
-    setUser(data.user);
+    setUser(data?.user || data);
     return data;
   }, [queryClient]);
 
+  const switchPersona = useCallback(async (email, password = 'handoffscope-dev-2026') => {
+    return login(email, password);
+  }, [login]);
+
   const logout = useCallback(async () => {
-    await authApi.logout();
-    queryClient.clear();
-    setUser(null);
+    try {
+      await authApi.logout();
+    } finally {
+      queryClient.clear();
+      setUser(null);
+    }
   }, [queryClient]);
 
   const value = {
@@ -54,6 +65,7 @@ export function AuthProvider({ children }) {
     loading,
     isAuthenticated: !!user,
     login,
+    switchPersona,
     logout,
     setUser,
   };

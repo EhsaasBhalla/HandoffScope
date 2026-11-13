@@ -2,12 +2,16 @@ import { httpClient } from './httpClient';
 
 export const questionApi = {
   listQuestions: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
     const url = query ? `/api/v1/questions?${query}` : '/api/v1/questions';
     return httpClient.get(url);
   },
   listCaseQuestions: (caseId, params = {}) => {
-    const query = new URLSearchParams(params).toString();
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
     const url = query ? `/api/v1/cases/${caseId}/questions?${query}` : `/api/v1/cases/${caseId}/questions`;
     return httpClient.get(url);
   },

@@ -26,6 +26,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import { useCaseLiveUpdates } from '../../hooks/useCaseLiveUpdates';
 import { recipientApi } from '../../api/recipient.api';
 import { exportApi } from '../../api/export.api';
@@ -34,16 +35,19 @@ import styles from './successor-view.module.css';
 
 export default function SuccessorViewPage() {
   const { user } = useAuth();
+  const { hasCapability } = usePermissions();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [selectedCaseId, setSelectedCaseId] = useState(searchParams.get('caseId') || '');
+  const urlCaseId = searchParams.get('caseId');
+  const [selectedCaseId, setSelectedCaseId] = useState(urlCaseId || '');
   const [completedActions, setCompletedActions] = useState({});
   const [expandedPacks, setExpandedPacks] = useState({});
 
   // Decline Modal, Claim Delegation Modal & Export state
   const [decliningAssignmentId, setDecliningAssignmentId] = useState(null);
   const [declineReason, setDeclineReason] = useState('');
+  const [declineError, setDeclineError] = useState('');
   const [delegatingClaim, setDelegatingClaim] = useState(null);
   const [delegateUserId, setDelegateUserId] = useState('');
   const [delegateNote, setDelegateNote] = useState('');
@@ -51,6 +55,19 @@ export default function SuccessorViewPage() {
   const [exportBusy, setExportBusy] = useState('');
   const [exportError, setExportError] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
+
+  const closeDeclineModal = () => {
+    setDecliningAssignmentId(null);
+    setDeclineReason('');
+    setDeclineError('');
+  };
+
+  const closeDelegateModal = () => {
+    setDelegatingClaim(null);
+    setDelegateUserId('');
+    setDelegateNote('');
+    setDelegateError('');
+  };
 
   const { mode: liveMode } = useCaseLiveUpdates(selectedCaseId);
 
@@ -61,16 +78,23 @@ export default function SuccessorViewPage() {
   });
 
   useEffect(() => {
+    if (urlCaseId && urlCaseId !== selectedCaseId) {
+      setSelectedCaseId(urlCaseId);
+    }
+  }, [urlCaseId]);
+
+  useEffect(() => {
     if (myCases && myCases.length > 0) {
       const stillValid = myCases.some((c) => c.id === selectedCaseId);
       if (!selectedCaseId || !stillValid) {
-        setSelectedCaseId(myCases[0].id);
-        setSearchParams({ caseId: myCases[0].id });
+        const nextId = (urlCaseId && myCases.some((c) => c.id === urlCaseId)) ? urlCaseId : myCases[0].id;
+        setSelectedCaseId(nextId);
+        setSearchParams({ caseId: nextId });
       }
-    } else {
+    } else if (myCases && myCases.length === 0) {
       setSelectedCaseId('');
     }
-  }, [myCases, selectedCaseId]);
+  }, [myCases, selectedCaseId, urlCaseId, setSearchParams]);
 
   const handleCaseChange = (e) => {
     const newId = e.target.value;
@@ -92,6 +116,8 @@ export default function SuccessorViewPage() {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      queryClient.invalidateQueries({ queryKey: ['case-shares', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
     onError: (err) => {
@@ -106,6 +132,7 @@ export default function SuccessorViewPage() {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
@@ -122,13 +149,13 @@ export default function SuccessorViewPage() {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setDecliningAssignmentId(null);
-      setDeclineReason('');
+      closeDeclineModal();
     },
     onError: (err) => {
-      alert(err.data?.detail || err.message || 'Failed to decline responsibility (reason must be at least 3 characters)');
+      setDeclineError(err.data?.detail || err.message || 'Failed to decline responsibility (reason must be at least 3 characters)');
     },
   });
 
@@ -143,12 +170,10 @@ export default function SuccessorViewPage() {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setDelegatingClaim(null);
-      setDelegateUserId('');
-      setDelegateNote('');
-      setDelegateError('');
+      closeDelegateModal();
     },
     onError: (err) => {
       setDelegateError(err.data?.detail || err.message || 'Failed to delegate claim.');
@@ -162,6 +187,7 @@ export default function SuccessorViewPage() {
       queryClient.invalidateQueries({ queryKey: ['successor-continuation-view', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['my-successor-cases'] });
       queryClient.invalidateQueries({ queryKey: ['case', selectedCaseId] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
       queryClient.invalidateQueries({ queryKey: ['case-responsibilities', selectedCaseId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
@@ -391,7 +417,7 @@ export default function SuccessorViewPage() {
                 </div>
                 <p className={styles.ackSub}>
                   {v.is_acknowledged
-                    ? `Acknowledged on ${new Date(v.acknowledged_at).toLocaleString()} for Version ${v.current_version_number || 1}. Case status: ${v.status}.`
+                    ? `Acknowledged on ${v.acknowledged_at ? new Date(v.acknowledged_at).toLocaleString() : 'N/A'} for Version ${v.current_version_number || 1}. Case status: ${v.status}.`
                     : `Departing engineer ${v.departing_contributor_name || 'Contributor'} has finalized this transition. Please acknowledge receipt to begin review.`}
                 </p>
               </div>
@@ -417,7 +443,7 @@ export default function SuccessorViewPage() {
                 <Layers size={16} />
               </div>
               <span className={styles.statValue}>
-                {v.stats.assigned_packs} / {v.stats.total_packs}
+                {v.stats?.assigned_packs ?? 0} / {v.stats?.total_packs ?? 0}
               </span>
             </div>
 
@@ -427,7 +453,7 @@ export default function SuccessorViewPage() {
                 <CheckCircle2 size={16} style={{ color: 'var(--color-success)' }} />
               </div>
               <span className={styles.statValue} style={{ color: 'var(--color-success)' }}>
-                {v.stats.accepted_packs}
+                {v.stats?.accepted_packs ?? 0}
               </span>
             </div>
 
@@ -437,20 +463,20 @@ export default function SuccessorViewPage() {
                 <CheckSquare size={16} style={{ color: 'var(--color-accent)' }} />
               </div>
               <span className={styles.statValue}>
-                {v.stats.next_actions_count}
+                {v.stats?.next_actions_count ?? 0}
               </span>
             </div>
 
             <div className={styles.statCard}>
               <div className={styles.statHeader}>
                 <span>Access Blockers</span>
-                <ShieldAlert size={16} style={{ color: v.stats.access_blockers_count > 0 ? 'var(--color-error)' : 'var(--color-text-muted)' }} />
+                <ShieldAlert size={16} style={{ color: (v.stats?.access_blockers_count ?? 0) > 0 ? 'var(--color-error)' : 'var(--color-text-muted)' }} />
               </div>
               <span
                 className={styles.statValue}
-                style={{ color: v.stats.access_blockers_count > 0 ? 'var(--color-error)' : 'var(--color-text-primary)' }}
+                style={{ color: (v.stats?.access_blockers_count ?? 0) > 0 ? 'var(--color-error)' : 'var(--color-text-primary)' }}
               >
-                {v.stats.access_blockers_count}
+                {v.stats?.access_blockers_count ?? 0}
               </span>
             </div>
           </div>
@@ -465,7 +491,7 @@ export default function SuccessorViewPage() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-              {v.transfer_packs.map((pack) => {
+              {(v.transfer_packs || []).map((pack) => {
                 const assignment = pack.assignment;
                 const isExpanded = !!expandedPacks[pack.id];
 
@@ -493,7 +519,7 @@ export default function SuccessorViewPage() {
                             <span className={styles.statusPillAccepted}>Ownership Accepted</span>
                           ) : assignment.status === 'DECLINED' ? (
                             <span className={styles.statusPillDeclined}>Ownership Declined</span>
-                          ) : (
+                          ) : assignment.assigned_user_id === user?.id ? (
                             <>
                               <button
                                 className={styles.btnAccept}
@@ -504,11 +530,19 @@ export default function SuccessorViewPage() {
                               </button>
                               <button
                                 className={styles.btnDecline}
-                                onClick={() => setDecliningAssignmentId(assignment.id)}
+                                onClick={() => {
+                                  setDecliningAssignmentId(assignment.id);
+                                  setDeclineReason('');
+                                  setDeclineError('');
+                                }}
                               >
                                 <XCircle size={14} /> Decline
                               </button>
                             </>
+                          ) : (
+                            <span className={styles.statusPillPending}>
+                              Pending Acceptance ({assignment.assignee_name || 'Successor'})
+                            </span>
                           )}
                         </div>
                       ) : (
@@ -547,12 +581,12 @@ export default function SuccessorViewPage() {
                         }}
                       >
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                        {isExpanded ? 'Hide Claims' : `View ${pack.claims.length} Claims`}
+                        {isExpanded ? 'Hide Claims' : `View ${(pack.claims || []).length} Claims`}
                       </button>
 
                       {isExpanded && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', marginTop: 'var(--space-sm)' }}>
-                          {pack.claims.map((c) => {
+                          {(pack.claims || []).map((c) => {
                             const activeDelegation = (v.claim_assignments || []).find((ca) => ca.claim_id === c.id);
                             const eligibleTargets = (v.eligible_delegates || []).filter((m) => m.user_id !== user?.id);
                             const canDelegateClaim =
@@ -576,7 +610,7 @@ export default function SuccessorViewPage() {
                                   </div>
                                   {activeDelegation ? (
                                     <span style={{ fontSize: '11px', color: 'var(--color-accent-text)', fontWeight: 600 }}>
-                                      Delegated → {activeDelegation.assignee_name} ({activeDelegation.status.replace('_', ' ')})
+                                      Delegated → {activeDelegation.assignee_name} ({(activeDelegation.status || '').replace(/_/g, ' ')})
                                     </span>
                                   ) : canDelegateClaim ? (
                                     <button
@@ -624,11 +658,11 @@ export default function SuccessorViewPage() {
               <div className={styles.sectionHeader}>
                 <h3 className={styles.sectionTitle}>
                   <UserPlus size={20} style={{ color: 'var(--color-accent)' }} />
-                  Delegated Claim Responsibilities ({v.claim_assignments.length})
+                  Delegated Claim Responsibilities ({(v.claim_assignments || []).length})
                 </h3>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                {v.claim_assignments.map((ca) => {
+                {(v.claim_assignments || []).map((ca) => {
                   const isAssignee = ca.assigned_user_id === user?.id;
                   const canRevoke = ca.delegated_from_user_id === user?.id || ca.assigned_by === user?.id;
                   return (
@@ -663,7 +697,11 @@ export default function SuccessorViewPage() {
                               </button>
                               <button
                                 className={styles.btnDecline}
-                                onClick={() => setDecliningAssignmentId(ca.id)}
+                                onClick={() => {
+                                  setDecliningAssignmentId(ca.id);
+                                  setDeclineReason('');
+                                  setDeclineError('');
+                                }}
                               >
                                 <XCircle size={14} /> Decline
                               </button>
@@ -700,17 +738,17 @@ export default function SuccessorViewPage() {
             <div className={styles.sectionHeader}>
               <h3 className={styles.sectionTitle}>
                 <CheckSquare size={20} style={{ color: 'var(--color-accent)' }} />
-                2. What Are My Next Actions? ({v.next_actions.length})
+                2. What Are My Next Actions? ({(v.next_actions || []).length})
               </h3>
             </div>
 
-            {v.next_actions.length === 0 ? (
+            {!v.next_actions || v.next_actions.length === 0 ? (
               <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
                 No explicit next actions defined.
               </p>
             ) : (
               <div className={styles.actionsList}>
-                {v.next_actions.map((act) => {
+                {(v.next_actions || []).map((act) => {
                   const isDone = !!completedActions[act.id];
                   return (
                     <div key={act.id} className={styles.actionItem}>
@@ -747,13 +785,13 @@ export default function SuccessorViewPage() {
               </h3>
             </div>
 
-            {v.unfinished_items.length === 0 ? (
+            {!v.unfinished_items || v.unfinished_items.length === 0 ? (
               <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
                 No unfinished inquiries or open knowledge gaps recorded.
               </p>
             ) : (
               <div className={styles.unfinishedList}>
-                {v.unfinished_items.map((item, idx) => (
+                {(v.unfinished_items || []).map((item, idx) => (
                   <div key={idx} className={styles.unfinishedCard}>
                     <div className={styles.unfinishedTop}>
                       <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-accent)', fontWeight: 600 }}>
@@ -780,13 +818,13 @@ export default function SuccessorViewPage() {
               </h3>
             </div>
 
-            {v.access_blockers.length === 0 ? (
+            {!v.access_blockers || v.access_blockers.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)', fontSize: 'var(--text-xs)' }}>
                 <CheckCircle2 size={16} /> All referenced sources and evidence are fully accessible with your clearance.
               </div>
             ) : (
               <div className={styles.blockersList}>
-                {v.access_blockers.map((b, idx) => (
+                {(v.access_blockers || []).map((b, idx) => (
                   <div key={idx} className={styles.blockerItem}>
                     <div className={styles.blockerLeft}>
                       <ShieldAlert size={20} className={styles.blockerIcon} />
@@ -810,7 +848,7 @@ export default function SuccessorViewPage() {
 
       {/* Decline Responsibility Modal */}
       {decliningAssignmentId && (
-        <div className={styles.modalOverlay} onClick={() => setDecliningAssignmentId(null)}>
+        <div className={styles.modalOverlay} onClick={closeDeclineModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', color: 'var(--color-text-primary)' }}>
               Decline Responsibility for Transfer Pack
@@ -818,6 +856,12 @@ export default function SuccessorViewPage() {
             <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
               Please explain why you are unable to accept ownership (e.g. missing cluster permissions, unassigned training, incorrect workstream).
             </p>
+
+            {declineError && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)', padding: '6px 8px', borderRadius: '4px', backgroundColor: 'var(--color-error-bg)' }}>
+                {declineError}
+              </div>
+            )}
 
             <textarea
               rows={3}
@@ -840,7 +884,7 @@ export default function SuccessorViewPage() {
               <button
                 className={styles.btnDecline}
                 style={{ backgroundColor: 'transparent', color: 'var(--color-text-secondary)' }}
-                onClick={() => setDecliningAssignmentId(null)}
+                onClick={closeDeclineModal}
               >
                 Cancel
               </button>
@@ -864,7 +908,7 @@ export default function SuccessorViewPage() {
 
       {/* Claim Delegation Modal */}
       {delegatingClaim && (
-        <div className={styles.modalOverlay} onClick={() => setDelegatingClaim(null)}>
+        <div className={styles.modalOverlay} onClick={closeDelegateModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', color: 'var(--color-text-primary)' }}>
               Delegate Claim Responsibility
@@ -885,6 +929,7 @@ export default function SuccessorViewPage() {
                 fontSize: 'var(--text-sm)',
               }}
             >
+              <option value="">Select a member...</option>
               {(v?.eligible_delegates || [])
                 .filter((m) => m.user_id !== user?.id)
                 .map((m) => (
@@ -919,7 +964,7 @@ export default function SuccessorViewPage() {
                 type="button"
                 className={styles.btnDecline}
                 style={{ backgroundColor: 'transparent', color: 'var(--color-text-secondary)', borderColor: 'var(--color-border)' }}
-                onClick={() => setDelegatingClaim(null)}
+                onClick={closeDelegateModal}
               >
                 Cancel
               </button>
