@@ -47,6 +47,10 @@ function EvidenceCardComponent({ evidence }) {
     }
   };
 
+  const openUrl =
+    evidence.source_url ||
+    (evidence.document_id ? `/api/v1/documents/${evidence.document_id}/view` : null);
+
   return (
     <div className={styles.card}>
       <div className={styles.header}>
@@ -66,16 +70,17 @@ function EvidenceCardComponent({ evidence }) {
 
       <div className={styles.titleRow}>
         <h5 className={styles.title}>{evidence.source_title || 'Source Evidence Reference'}</h5>
-        {evidence.source_url && (
+        {openUrl && (
           <a
-            href={evidence.source_url}
+            href={openUrl}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className={styles.externalLink}
-            title="Open in GitHub / Source"
+            className={styles.openInNewTabBtn}
+            title={type === 'DOCUMENT' ? 'Open document in new browser tab' : 'Open link in new tab'}
           >
-            <ExternalLink size={12} />
+            {type === 'DOCUMENT' ? <FileText size={11} /> : <ExternalLink size={11} />}
+            <span>{type === 'DOCUMENT' ? 'Open Document' : 'Open in New Tab'}</span>
           </a>
         )}
       </div>

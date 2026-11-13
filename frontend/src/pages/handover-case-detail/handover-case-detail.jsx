@@ -340,8 +340,8 @@ export default function HandoverCaseDetailPage() {
   });
 
   const submitAnswerMutation = useMutation({
-    mutationFn: ({ questionId, text }) =>
-      questionApi.submitResponse(questionId, { response_text: text }),
+    mutationFn: ({ questionId, text, attachments }) =>
+      questionApi.submitResponse(questionId, { response_text: text, attachments }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case-questions', caseId] });
       queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
@@ -349,6 +349,22 @@ export default function HandoverCaseDetailPage() {
     },
     onError: (err) => {
       alert(err.data?.detail || err.message || 'Failed to submit response');
+    },
+  });
+
+  const regenerateDecisionsMutation = useMutation({
+    mutationFn: () => evidenceApi.regenerateCaseDecisions(caseId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['case-claims', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['review-queue-summary', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      setReconNotice({
+        message: `Decisions regenerated: ${data?.total_decisions || 0} total (${data?.created_count || 0} newly generated, ${data?.updated_count || 0} refreshed).`,
+      });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to regenerate decisions');
     },
   });
 
@@ -804,8 +820,8 @@ export default function HandoverCaseDetailPage() {
                     key={q.id}
                     q={q}
                     showCaseTag={false}
-                    onSubmitAnswer={(questionId, text) =>
-                      submitAnswerMutation.mutateAsync({ questionId, text })
+                    onSubmitAnswer={(questionId, text, options) =>
+                      submitAnswerMutation.mutateAsync({ questionId, text, attachments: options?.attachments })
                     }
                     onGenerateAiAnswer={(questionId) =>
                       generateAiAnswerMutation.mutateAsync(questionId)
@@ -876,24 +892,40 @@ export default function HandoverCaseDetailPage() {
               styles={styles}
             />
 
-            {/* Filter Chips */}
-            <div className={styles.filterChipsRow}>
-              {[
-                { id: 'ALL', label: 'All Claims' },
-                { id: 'PENDING_REVIEW', label: 'Pending Review' },
-                { id: 'ACCEPTED', label: 'Accepted' },
-                { id: 'EDITED_AND_ACCEPTED', label: 'Edited & Accepted' },
-                { id: 'NEEDS_CLARIFICATION', label: 'Needs Clarification' },
-                { id: 'REJECTED', label: 'Rejected' },
-              ].map((f) => (
+            {/* Filter Chips & Decision Regeneration Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div className={styles.filterChipsRow}>
+                {[
+                  { id: 'ALL', label: 'All Claims' },
+                  { id: 'PENDING_REVIEW', label: 'Pending Review' },
+                  { id: 'ACCEPTED', label: 'Accepted' },
+                  { id: 'EDITED_AND_ACCEPTED', label: 'Edited & Accepted' },
+                  { id: 'NEEDS_CLARIFICATION', label: 'Needs Clarification' },
+                  { id: 'REJECTED', label: 'Rejected' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    className={`${styles.filterChip} ${reviewFilter === f.id ? styles.filterChipActive : ''}`}
+                    onClick={() => setReviewFilter(f.id)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {canTriggerReconstruct && (
                 <button
-                  key={f.id}
-                  className={`${styles.filterChip} ${reviewFilter === f.id ? styles.filterChipActive : ''}`}
-                  onClick={() => setReviewFilter(f.id)}
+                  type="button"
+                  className={styles.secondaryActionBtn}
+                  disabled={regenerateDecisionsMutation.isPending}
+                  onClick={() => regenerateDecisionsMutation.mutate()}
+                  title="Rescan project source records and re-synthesize architectural decisions"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 12px' }}
                 >
-                  {f.label}
+                  <Sparkles size={13} />
+                  {regenerateDecisionsMutation.isPending ? 'Regenerating Decisions…' : 'Regenerate Decisions'}
                 </button>
-              ))}
+              )}
             </div>
 
             {/* Claims Review List */}

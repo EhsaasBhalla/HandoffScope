@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_db
 from app.modules.evidence.models import ExtractionRun
 from app.modules.reconstruction import service
-from app.modules.reconstruction.schemas import ExtractionRunOut, ReconstructionTriggerResponse
+from app.modules.reconstruction.schemas import (
+    ExtractionRunOut,
+    ReconstructionTriggerResponse,
+    RegenerateDecisionsResponse,
+)
 from app.modules.workspaces.models import User
 
 router = APIRouter(tags=["reconstruction"])
@@ -53,6 +57,27 @@ def trigger_reconstruction(
     """Trigger the knowledge reconstruction pipeline for a handover case."""
     try:
         return service.run_extraction(db, case_id, actor_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post(
+    "/cases/{case_id}/regenerate-decisions",
+    response_model=RegenerateDecisionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+def regenerate_case_decisions_endpoint(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Regenerate and update authoritative architectural and technical decisions for a handover case."""
+    try:
+        return service.regenerate_case_decisions(db, case_id=case_id, actor_id=user.id)
     except HTTPException:
         db.rollback()
         raise

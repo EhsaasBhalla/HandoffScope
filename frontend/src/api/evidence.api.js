@@ -31,4 +31,8 @@ export const evidenceApi = {
     httpClient.get(`/api/v1/claims/${claimId}/evidence`),
   updateClaim: (claimId, data) =>
     httpClient.patch(`/api/v1/claims/${claimId}`, data),
+  regenerateCaseDecisions: (caseId) =>
+    httpClient.post(`/api/v1/cases/${caseId}/regenerate-decisions`),
+  regenerateSingleDecision: (claimId) =>
+    httpClient.post(`/api/v1/claims/${claimId}/regenerate-decision`),
 };

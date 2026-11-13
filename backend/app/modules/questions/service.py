@@ -84,6 +84,10 @@ def _to_question_out(q: Question, promotion_result: dict[str, Any] | None = None
             ai_model=getattr(r, "ai_model", None),
             answer_status=getattr(r, "answer_status", None),
             evidence_references=list(getattr(r, "evidence_json", None) or []),
+            attachments=list(
+                (getattr(r, "provenance_json", None) or {}).get("attachments")
+                or []
+            ),
             limitations=getattr(r, "limitations", None),
             conflicts=list(getattr(r, "conflicts_json", None) or []),
             provenance=getattr(r, "provenance_json", None),
@@ -353,8 +357,10 @@ def add_response(
     question_id: uuid.UUID,
     user_id: uuid.UUID,
     response_text: str,
+    attachments: list[dict[str, Any]] | None = None,
+    evidence_references: list[dict[str, Any]] | None = None,
 ) -> QuestionOut:
-    """Submit an answer to a question."""
+    """Submit an answer to a question, optionally attaching resources or citations."""
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise ValueError("Question not found")
@@ -365,11 +371,19 @@ def add_response(
     if question.status == QuestionStatus.RESOLVED:
         raise ValueError("Cannot answer an already resolved question; reopen the question first")
 
+    prov = {}
+    if attachments:
+        prov["attachments"] = attachments
+
+    ev_refs = evidence_references or (attachments if attachments else None)
+
     response = QuestionResponse(
         question_id=question.id,
         respondent_id=user_id,
         response_text=response_text.strip(),
         review_state=QuestionResponseReviewState.PENDING_REVIEW,
+        provenance_json=prov if prov else None,
+        evidence_json=ev_refs,
     )
     db.add(response)
     question.status = QuestionStatus.ANSWERED
@@ -722,6 +736,7 @@ def review_response(
     notes: str | None = None,
     response_id: uuid.UUID | None = None,
     amended_text: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> QuestionOut:
     """Accept, reject, or amend a response to a question (atomically promoting/updating knowledge)."""
     q_query = db.query(Question).filter(Question.id == question_id)
@@ -797,8 +812,14 @@ def review_response(
             prov.setdefault("original_text_before_amendment", target_response.response_text)
             prov["amended_by_id"] = str(user_id)
             prov["amended_at"] = now_iso
+            if attachments:
+                prov["attachments"] = attachments
             target_response.provenance_json = prov
             target_response.response_text = cleaned
+        elif attachments:
+            prov = dict(getattr(target_response, "provenance_json", None) or {})
+            prov["attachments"] = attachments
+            target_response.provenance_json = prov
         target_response.review_state = QuestionResponseReviewState.AMENDED
         target_response.reviewed_by_id = user_id
         target_response.reviewed_at = now_iso

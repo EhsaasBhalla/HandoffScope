@@ -17,4 +17,12 @@ export const documentApi = {
   getDocument(documentId) {
     return httpClient.get(`/api/v1/documents/${documentId}`);
   },
+
+  getDocumentDownloadUrl(documentId, inline = true) {
+    return `/api/v1/documents/${documentId}/download${inline ? '?inline=true' : ''}`;
+  },
+
+  getDocumentViewUrl(documentId) {
+    return `/api/v1/documents/${documentId}/view`;
+  },
 };

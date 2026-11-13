@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileStack,
   GitBranch,
+  GitCommit,
   Users,
   Plus,
   ExternalLink,
@@ -16,6 +17,11 @@ import {
   RefreshCw,
   Trash2,
   UserPlus,
+  Copy,
+  Check,
+  Search,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { projectApi } from '../../api/project.api';
 import { caseApi } from '../../api/case.api';
@@ -28,6 +34,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'cases', label: 'Handover Cases' },
   { id: 'sources', label: 'Sources' },
+  { id: 'git-history', label: 'Git History' },
   { id: 'identities', label: 'Identity Mappings' },
   { id: 'people', label: 'People' },
 ];
@@ -43,6 +50,9 @@ export default function ProjectDetailPage() {
   const [addMemberRole, setAddMemberRole] = useState('CONTRIBUTOR');
   const [memberError, setMemberError] = useState('');
   const [syncNotice, setSyncNotice] = useState('');
+  const [gitSearch, setGitSearch] = useState('');
+  const [copiedSha, setCopiedSha] = useState('');
+  const [expandedCommitId, setExpandedCommitId] = useState(null);
 
   // Fetch project details
   const { data: project, isLoading: projLoading } = useQuery({
@@ -126,6 +136,40 @@ export default function ProjectDetailPage() {
     queryFn: () => identityApi.getCoverage(projectId),
     enabled: !!projectId,
   });
+
+  // Fetch project git commit history
+  const {
+    data: gitHistoryData,
+    isLoading: gitHistoryLoading,
+    refetch: refetchGitHistory,
+    isFetching: gitHistoryFetching,
+  } = useQuery({
+    queryKey: ['project-git-history', projectId, gitSearch],
+    queryFn: () => projectApi.getGitHistory(projectId, { search: gitSearch || undefined }),
+    enabled: !!projectId,
+  });
+
+  const handleCopySha = (sha) => {
+    navigator.clipboard?.writeText(sha);
+    setCopiedSha(sha);
+    setTimeout(() => setCopiedSha(''), 2000);
+  };
+
+  const groupedCommits = useMemo(() => {
+    const items = gitHistoryData?.items || [];
+    const groups = {};
+    for (const c of items) {
+      const dt = c.committed_at ? new Date(c.committed_at) : new Date();
+      const dateKey = dt.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(c);
+    }
+    return Object.entries(groups);
+  }, [gitHistoryData?.items]);
 
   // Auto-suggest mutation
   const autoSuggestMutation = useMutation({
@@ -271,6 +315,21 @@ export default function ProjectDetailPage() {
                 <span className={styles.statsValue}>{Array.isArray(members) ? members.length : 0}</span>
               </div>
             </div>
+
+            <div
+              className={styles.statsCard}
+              onClick={() => setActiveTab('git-history')}
+              style={{ cursor: 'pointer' }}
+              title="View Git Commit History"
+            >
+              <div className={styles.statsIconWrap}>
+                <GitCommit size={20} />
+              </div>
+              <div className={styles.statsContent}>
+                <span className={styles.statsLabel}>Git Commits</span>
+                <span className={styles.statsValue}>{gitHistoryData?.total ?? 0}</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -372,6 +431,147 @@ export default function ProjectDetailPage() {
                   Connect Source
                 </Link>
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'git-history' && (
+          <div className={styles.gitHistoryWrap}>
+            {/* Toolbar */}
+            <div className={styles.gitToolbar}>
+              <div className={styles.gitSearchBox}>
+                <Search size={14} style={{ color: 'var(--color-text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Filter commits by message, author, or SHA…"
+                  value={gitSearch}
+                  onChange={(e) => setGitSearch(e.target.value)}
+                  className={styles.gitSearchInput}
+                />
+              </div>
+
+              <div className={styles.gitStatsSummary}>
+                <span>
+                  <strong>{gitHistoryData?.total ?? 0}</strong> commits recorded
+                </span>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => refetchGitHistory()}
+                  disabled={gitHistoryFetching}
+                  title="Refresh commit history"
+                >
+                  <RefreshCw size={13} className={gitHistoryFetching ? styles.spin : ''} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Commits List */}
+            {gitHistoryLoading ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                Loading git commit history…
+              </div>
+            ) : groupedCommits.length === 0 ? (
+              <div className={styles.emptyTab}>
+                <GitCommit size={36} style={{ color: 'var(--color-text-muted)', opacity: 0.5 }} />
+                <h4>No git commits found</h4>
+                <p>
+                  {gitSearch
+                    ? 'No commits matched your search query.'
+                    : 'No commit records synced yet. Connect a GitHub repository or sync sources.'}
+                </p>
+                <Link to="/sources" className={styles.secondaryBtn}>
+                  Manage Sources
+                </Link>
+              </div>
+            ) : (
+              groupedCommits.map(([dateKey, commitList]) => (
+                <div key={dateKey} className={styles.commitGroup}>
+                  <div className={styles.commitGroupDate}>
+                    <Calendar size={13} />
+                    <span>Commits on {dateKey}</span>
+                  </div>
+
+                  {commitList.map((c) => {
+                    const isExpanded = expandedCommitId === c.id;
+                    const isCopied = copiedSha === c.sha;
+
+                    return (
+                      <div key={c.id} className={styles.commitItem}>
+                        <div className={styles.commitLeft}>
+                          <div className={styles.commitIconWrap}>
+                            <GitCommit size={16} />
+                          </div>
+                          <div className={styles.commitDetails}>
+                            <div
+                              className={styles.commitTitle}
+                              onClick={() => setExpandedCommitId(isExpanded ? null : c.id)}
+                              title="Click to toggle commit body"
+                            >
+                              {c.title}
+                            </div>
+                            <div className={styles.commitMeta}>
+                              <span className={styles.commitAuthorPill}>
+                                <span className={styles.authorAvatar}>
+                                  {(c.author_name || 'U')[0].toUpperCase()}
+                                </span>
+                                <span>{c.author_name}</span>
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {c.committed_at ? new Date(c.committed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </span>
+                              {c.source_name && (
+                                <>
+                                  <span>•</span>
+                                  <span>{c.source_name}</span>
+                                </>
+                              )}
+                              {c.branch && (
+                                <span className={styles.branchTag}>
+                                  <GitBranch size={10} />
+                                  <span>{c.branch}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {isExpanded && c.message && (
+                              <pre className={styles.commitBodyExpanded}>
+                                {c.message}
+                              </pre>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className={styles.commitRight}>
+                          <button
+                            type="button"
+                            className={styles.shaPill}
+                            onClick={() => handleCopySha(c.sha)}
+                            title="Copy full SHA hash"
+                          >
+                            <span>{c.short_sha}</span>
+                            {isCopied ? <Check size={11} color="var(--color-success)" /> : <Copy size={11} />}
+                          </button>
+
+                          {c.url && (
+                            <a
+                              href={c.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.externalCommitBtn}
+                              title="Open commit on GitHub / Source in new tab"
+                            >
+                              <ExternalLink size={13} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
             )}
           </div>
         )}

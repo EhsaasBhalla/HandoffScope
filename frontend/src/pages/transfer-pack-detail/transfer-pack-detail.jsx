@@ -18,6 +18,7 @@ import {
   UserCheck,
   MessageSquare,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { transferPackApi } from '../../api/transferPack.api';
 import { evidenceApi } from '../../api/evidence.api';
@@ -224,6 +225,19 @@ export default function TransferPackDetailPage() {
     },
   });
 
+  const regenerateDecisionsMutation = useMutation({
+    mutationFn: () => evidenceApi.regenerateCaseDecisions(caseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pack-claims', packId] });
+      queryClient.invalidateQueries({ queryKey: ['pack-stats', packId] });
+      queryClient.invalidateQueries({ queryKey: ['transfer-pack', packId] });
+      queryClient.invalidateQueries({ queryKey: ['case-packs', caseId] });
+    },
+    onError: (err) => {
+      alert(err.data?.detail || err.message || 'Failed to regenerate decisions');
+    },
+  });
+
   // Stabilized claim handlers for memoized ClaimCard
   const handleMoveClaim = useCallback(
     (claimId, targetPackId) => moveClaimMutation.mutateAsync({ claimId, targetPackId }),
@@ -408,9 +422,24 @@ export default function TransferPackDetailPage() {
             </button>
           ))}
         </div>
-        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-          Showing {filteredClaims.length} of {stats.total} claims
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {(selectedType === 'DECISION' || selectedType === 'ALL') && canManagePack && (
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              disabled={regenerateDecisionsMutation.isPending}
+              onClick={() => regenerateDecisionsMutation.mutate()}
+              title="Rescan project sources and re-synthesize architectural decisions"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 10px' }}
+            >
+              <Sparkles size={12} />
+              {regenerateDecisionsMutation.isPending ? 'Regenerating…' : 'Regenerate Decisions'}
+            </button>
+          )}
+          <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+            Showing {filteredClaims.length} of {stats.total} claims
+          </span>
+        </div>
       </div>
 
       {/* Claims Stream */}

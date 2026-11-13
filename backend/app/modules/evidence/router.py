@@ -95,6 +95,7 @@ def _enrich_evidence_out(ev: ClaimEvidence, db: Session, allow_restricted: bool 
         if doc:
             source_title = doc.original_filename
             source_type = "DOCUMENT"
+            source_url = f"/api/v1/documents/{doc.id}/view"
             source_timestamp = doc.created_at
 
     excerpt = ev.excerpt
@@ -365,6 +366,48 @@ def update_claim(
     except Exception:
         db.rollback()
         raise
+
+    pack = claim.transfer_pack
+    case_id = pack.case_id if pack else None
+    case = db.query(HandoverCase).filter(HandoverCase.id == case_id).first() if case_id else None
+    allow_restricted = _resolve_user_clearance(
+        db, request, project_id=case.project_id if case else None, case_id=case_id
+    )
+
+    evidence_records = (
+        db.query(ClaimEvidence)
+        .filter(ClaimEvidence.claim_id == claim.id)
+        .order_by(ClaimEvidence.created_at.asc())
+        .all()
+    )
+    is_restr = any(ev.is_restricted for ev in evidence_records)
+    evidence_items = [_enrich_evidence_out(ev, db, allow_restricted=allow_restricted) for ev in evidence_records]
+    base_out = _project_claim_out(claim, len(evidence_items), is_restr, allow_restricted)
+
+    return ClaimDetailOut(
+        **base_out.model_dump(),
+        evidence=evidence_items,
+    )
+
+
+@router.post(
+    "/claims/{claim_id}/regenerate-decision",
+    response_model=ClaimDetailOut,
+    status_code=status.HTTP_200_OK,
+)
+def regenerate_decision_endpoint(
+    claim_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Regenerate architecture decision rationale, context, and freshness for a specific claim."""
+    from app.modules.evidence.service import regenerate_single_decision
+
+    try:
+        claim = regenerate_single_decision(db, claim_id=claim_id, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     pack = claim.transfer_pack
     case_id = pack.case_id if pack else None

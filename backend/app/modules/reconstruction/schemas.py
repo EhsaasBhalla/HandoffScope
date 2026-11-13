@@ -12,6 +12,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.db.enums import ExtractionRunStatus
+from app.modules.evidence.schemas import ClaimOut
 
 
 class ReconstructionTriggerResponse(BaseModel):
@@ -45,3 +46,13 @@ class ExtractionRunOut(BaseModel):
     fallback_reason: Optional[str] = None
     context_stats: Optional[dict[str, Any]] = None
     created_at: datetime
+
+
+class RegenerateDecisionsResponse(BaseModel):
+    case_id: uuid.UUID
+    status: str
+    decisions_created: int
+    decisions_updated: int
+    total_decisions: int
+    message: str
+    claims: list[ClaimOut] = []

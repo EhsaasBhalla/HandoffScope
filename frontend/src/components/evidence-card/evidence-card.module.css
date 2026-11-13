@@ -106,3 +106,24 @@
   align-items: center;
   gap: var(--space-xs);
 }
+
+.openInNewTabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-accent-text);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  font-weight: var(--weight-medium);
+  transition: all var(--transition-fast);
+}
+
+.openInNewTabBtn:hover {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-accent);
+  text-decoration: none;
+}

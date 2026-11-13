@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import {
   Ban,
   CheckCircle2,
@@ -6,10 +6,14 @@ import {
   FileEdit,
   FileText,
   FolderKanban,
+  GitPullRequest,
   HelpCircle,
+  Link2,
   MessageSquare,
+  Paperclip,
   RotateCcw,
   Sparkles,
+  Upload,
   User,
   X,
   XCircle,
@@ -17,6 +21,7 @@ import {
 import { usePermissions } from '../../hooks/usePermissions';
 import { sourceApi } from '../../api/source.api';
 import { evidenceApi } from '../../api/evidence.api';
+import { documentApi } from '../../api/document.api';
 import styles from './question-card.module.css';
 
 function QuestionThreadCardComponent({
@@ -45,6 +50,14 @@ function QuestionThreadCardComponent({
   const [inspectSource, setInspectSource] = useState(null);
   const [inspectLoading, setInspectLoading] = useState(false);
   const [inspectError, setInspectError] = useState('');
+
+  // Resource Attachments State
+  const [attachments, setAttachments] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [repoRecords, setRepoRecords] = useState([]);
+  const [repoRecordsLoading, setRepoRecordsLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!inspectSource) return;
@@ -78,12 +91,22 @@ function QuestionThreadCardComponent({
     (latestResp.review_state || '').toUpperCase() === 'PENDING_REVIEW';
 
   const handleOpenCitation = async (ref) => {
-    if (!ref || !ref.source_id) return;
+    if (!ref || (!ref.source_id && !ref.document_id)) return;
     setInspectError('');
     setInspectSource({ loading: true, ref });
     setInspectLoading(true);
     try {
-      if (ref.source_type === 'CLAIM') {
+      if (ref.source_type === 'DOCUMENT' || ref.document_id) {
+        const docId = ref.document_id || ref.source_id;
+        setInspectSource({
+          type: 'DOCUMENT',
+          title: ref.title || 'Attached Document',
+          body: ref.excerpt || 'Document file attachment',
+          meta: `Document Attachment #${docId}`,
+          url: `/api/v1/documents/${docId}/view`,
+          locator: ref.locator,
+        });
+      } else if (ref.source_type === 'CLAIM') {
         const claim = await evidenceApi.getClaim(ref.source_id);
         setInspectSource({
           type: 'CLAIM',
@@ -91,6 +114,7 @@ function QuestionThreadCardComponent({
           body: claim?.body_text || '',
           meta: `Claim (${claim?.claim_type || 'Unknown'}) • ${claim?.review_state || 'n/a'} • ${claim?.evidence_state || 'n/a'}`,
           locator: ref.locator,
+          url: ref.source_url || (claim?.id ? `/api/v1/claims/${claim.id}` : null),
         });
       } else {
         const rec = await sourceApi.getCaseSourceRecord(q.case_id, ref.source_id);
@@ -99,7 +123,7 @@ function QuestionThreadCardComponent({
           title: rec?.title || 'Source Record',
           body: rec?.body || '',
           meta: `${rec?.record_type || 'Record'} #${rec?.external_id || 'n/a'} • Author: ${rec?.author_name || 'unknown'} • State: ${rec?.state || 'n/a'}`,
-          url: rec?.url,
+          url: rec?.url || ref.source_url,
           locator: ref.locator,
         });
       }
@@ -109,6 +133,68 @@ function QuestionThreadCardComponent({
     } finally {
       setInspectLoading(false);
     }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!q.case_id) {
+      setAiError('Cannot attach file: question is not associated with a case.');
+      return;
+    }
+    setIsUploading(true);
+    setAiError('');
+    try {
+      const doc = await documentApi.uploadDocument(q.case_id, file);
+      const newAtt = {
+        title: file.name,
+        type: 'DOCUMENT',
+        document_id: doc.id,
+        url: `/api/v1/documents/${doc.id}/view`,
+        size_bytes: file.size,
+      };
+      setAttachments((prev) => [...prev, newAtt]);
+    } catch (err) {
+      setAiError(err?.data?.detail || err?.message || 'Failed to upload attachment.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleOpenRepoPicker = async () => {
+    if (!q.case_id) {
+      setAiError('Cannot attach repo resources: question has no associated case.');
+      return;
+    }
+    setShowRepoPicker(true);
+    setRepoRecordsLoading(true);
+    try {
+      const res = await sourceApi.listCaseSourceRecords(q.case_id, { limit: 50 });
+      setRepoRecords(Array.isArray(res) ? res : res?.items || []);
+    } catch (err) {
+      setAiError(err?.data?.detail || err?.message || 'Failed to load repository records.');
+    } finally {
+      setRepoRecordsLoading(false);
+    }
+  };
+
+  const handleSelectRepoRecord = (rec) => {
+    const cleanId = rec.id ? String(rec.id).replace('sr-', '') : '';
+    const newAtt = {
+      title: rec.title || `${rec.record_type} #${rec.external_id || cleanId.slice(0, 7)}`,
+      type: rec.record_type || 'COMMIT',
+      source_id: cleanId,
+      url: rec.url || '',
+    };
+    if (!attachments.some((a) => a.title === newAtt.title && a.url === newAtt.url)) {
+      setAttachments((prev) => [...prev, newAtt]);
+    }
+    setShowRepoPicker(false);
+  };
+
+  const handleRemoveAttachment = (idxToRemove) => {
+    setAttachments((prev) => prev.filter((_, idx) => idx !== idxToRemove));
   };
 
   const handleGenerateClick = async () => {
@@ -129,9 +215,12 @@ function QuestionThreadCardComponent({
     setAiError('');
     setIsSubmittingHuman(true);
     try {
-      await onSubmitAnswer(q.id, answerText.trim());
+      await onSubmitAnswer(q.id, answerText.trim(), {
+        attachments: attachments.length > 0 ? attachments : undefined,
+      });
       setIsAnswering(false);
       setAnswerText('');
+      setAttachments([]);
     } catch (err) {
       setAiError(err?.data?.detail || err?.data?.error?.message || err?.message || 'Failed to submit answer.');
     } finally {
@@ -344,22 +433,76 @@ function QuestionThreadCardComponent({
 
                 {Array.isArray(resp.evidence_references) && resp.evidence_references.length > 0 && (
                   <div className={styles.citationsRow}>
-                    {resp.evidence_references.map((ref, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenCitation(ref);
-                        }}
-                        className={`${styles.citationBtn} ${ref.is_stale ? styles.citationBtnStale : ''}`}
-                        title={ref.excerpt || 'Inspect source evidence'}
-                      >
-                        <FileText size={11} />
-                        <span>{ref.title || ref.locator || (ref.source_id ? String(ref.source_id).slice(0, 8) : 'Source')}</span>
-                        {ref.is_stale && <span className={styles.staleTag}>(Potentially Stale)</span>}
-                      </button>
-                    ))}
+                    {resp.evidence_references.map((ref, idx) => {
+                      const directUrl =
+                        ref.url ||
+                        ref.source_url ||
+                        (ref.document_id ? `/api/v1/documents/${ref.document_id}/view` : null);
+                      return (
+                        <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenCitation(ref);
+                            }}
+                            className={`${styles.citationBtn} ${ref.is_stale ? styles.citationBtnStale : ''}`}
+                            title={ref.excerpt || 'Inspect source evidence'}
+                          >
+                            <FileText size={11} />
+                            <span>{ref.title || ref.locator || (ref.source_id ? String(ref.source_id).slice(0, 8) : 'Source')}</span>
+                            {ref.is_stale && <span className={styles.staleTag}>(Potentially Stale)</span>}
+                          </button>
+                          {directUrl && (
+                            <a
+                              href={directUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.citationNewTabLink}
+                              title="Open source in new tab"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* User/AI Attached Resources */}
+                {Array.isArray(resp.attachments) && resp.attachments.length > 0 && (
+                  <div className={styles.attachmentsSection}>
+                    <div className={styles.attachmentsHeader}>
+                      <Paperclip size={12} />
+                      <span>Attached Resources ({resp.attachments.length})</span>
+                    </div>
+                    <div className={styles.attachmentsList}>
+                      {resp.attachments.map((att, idx) => {
+                        const openUrl =
+                          att.url ||
+                          (att.document_id ? `/api/v1/documents/${att.document_id}/view` : null);
+                        return (
+                          <span key={idx} className={styles.attachmentPill}>
+                            <span className={styles.attachmentTitle}>{att.title || 'Attachment'}</span>
+                            {openUrl && (
+                              <a
+                                href={openUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.openAttachmentLink}
+                                title="Open resource in new tab"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span>Open</span>
+                                <ExternalLink size={10} />
+                              </a>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -386,6 +529,74 @@ function QuestionThreadCardComponent({
             className={styles.textareaInput}
             disabled={isSubmittingHuman}
           />
+
+          {/* Attached items preview */}
+          {attachments.length > 0 && (
+            <div className={styles.attachmentsSection}>
+              <div className={styles.attachmentsHeader}>
+                <Paperclip size={12} />
+                <span>Attached Resources ({attachments.length})</span>
+              </div>
+              <div className={styles.attachmentsList}>
+                {attachments.map((att, idx) => (
+                  <span key={idx} className={styles.attachmentPill}>
+                    <span className={styles.attachmentTitle}>{att.title}</span>
+                    {att.url && (
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.openAttachmentLink}
+                        title="Open in new tab"
+                      >
+                        <ExternalLink size={10} />
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(idx)}
+                      className={styles.removeAttachmentBtn}
+                      title="Remove attachment"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Attach toolbar */}
+          <div className={styles.attachToolbar}>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+              disabled={isUploading || isSubmittingHuman}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || isSubmittingHuman}
+              className={styles.attachBtn}
+              title="Upload and attach local document or file"
+            >
+              <Upload size={12} />
+              <span>{isUploading ? 'Uploading…' : 'Attach Document'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenRepoPicker}
+              disabled={isUploading || isSubmittingHuman}
+              className={styles.attachBtn}
+              title="Select commit, PR, or file from connected GitHub repo"
+            >
+              <GitPullRequest size={12} />
+              <span>Attach from Repo</span>
+            </button>
+          </div>
+
           <div className={styles.editorActions}>
             <button
               type="button"
@@ -393,6 +604,7 @@ function QuestionThreadCardComponent({
               onClick={() => {
                 setIsAnswering(false);
                 setAnswerText('');
+                setAttachments([]);
               }}
               className={`${styles.btnBase} ${styles.btnGhost}`}
             >
@@ -592,10 +804,65 @@ function QuestionThreadCardComponent({
                     rel="noopener noreferrer"
                     className={styles.externalRefLink}
                   >
-                    Open Original External Reference <ExternalLink size={12} />
+                    Open Resource in New Tab <ExternalLink size={12} />
                   </a>
                 )}
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Repo Resource Picker Modal */}
+      {showRepoPicker && (
+        <div
+          className={styles.repoPickerModal}
+          onClick={() => setShowRepoPicker(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className={styles.repoPickerContent}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>Attach Repository Resource</h3>
+              <button
+                type="button"
+                onClick={() => setShowRepoPicker(false)}
+                className={styles.modalCloseBtn}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {repoRecordsLoading ? (
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading repository records…</p>
+            ) : repoRecords.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+                No repository records or commits found for this case.
+              </p>
+            ) : (
+              <div className={styles.repoPickerList}>
+                {repoRecords.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className={styles.repoPickerItem}
+                    onClick={() => handleSelectRepoRecord(rec)}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        {rec.title || `${rec.record_type} #${rec.external_id || ''}`}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+                        {rec.record_type} • {rec.author_name || 'unknown'} • {rec.external_id || ''}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--color-accent-text)', fontWeight: 500 }}>
+                      Attach
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

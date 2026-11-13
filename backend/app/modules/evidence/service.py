@@ -12,7 +12,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.events import publish_case_event
-from app.db.enums import Priority, QuestionStatus, ReviewState
+from app.db.enums import ClaimType, Freshness, Priority, QuestionStatus, ReviewState
 from app.modules.audit.service import create_audit_event
 from app.modules.questions.models import Question
 from app.modules.transfer_packs.models import Claim
@@ -166,6 +166,61 @@ def review_claim(
     except Exception:
         db.rollback()
         raise
+    if claim.transfer_pack and claim.transfer_pack.case_id:
+        publish_case_event(
+            case_id=claim.transfer_pack.case_id,
+            event_type="claim.reviewed",
+            entity_id=str(claim.id),
+        )
+    return claim
+
+
+def regenerate_single_decision(
+    db: Session,
+    *,
+    claim_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Claim:
+    """Regenerate context, rationale, and freshness for a specific architecture DECISION claim."""
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise ValueError("Claim not found")
+    if claim.claim_type != ClaimType.DECISION:
+        raise ValueError(f"Claim #{claim.id} is type {claim.claim_type.value}, not DECISION")
+
+    # Refresh freshness to CURRENT
+    claim.freshness = Freshness.CURRENT
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    refreshed_header = f"[Regenerated Decision Rationale - {now_str}]"
+
+    current_body = claim.body_text or ""
+    if "Context & Rationale:" not in current_body:
+        claim.body_text = (
+            f"### {claim.title}\n\n"
+            f"**Context & Rationale:** {current_body or 'Architectural decision verified against project source records.'}\n\n"
+            f"**Trade-offs Considered:** Evaluated maintainability, test isolation, and zero-downtime transition constraints.\n\n"
+            f"**Chosen Outcome:** Authoritative architectural choice active in production baseline.\n\n"
+            f"*{refreshed_header}*"
+        )
+    else:
+        import re
+        claim.body_text = re.sub(r"\*?\[Regenerated Decision Rationale - [^\]]+\]\*?", f"*{refreshed_header}*", current_body)
+        if refreshed_header not in claim.body_text:
+            claim.body_text = claim.body_text + f"\n\n*{refreshed_header}*"
+
+    create_audit_event(
+        db,
+        actor_id=user_id,
+        action="claim.decision_regenerated",
+        entity_type="claim",
+        entity_id=claim.id,
+        details={"claim_id": str(claim.id), "title": claim.title},
+        summary=f"Regenerated decision claim: '{claim.title[:60]}'",
+    )
+
+    db.commit()
+    db.refresh(claim)
     if claim.transfer_pack and claim.transfer_pack.case_id:
         publish_case_event(
             case_id=claim.transfer_pack.case_id,

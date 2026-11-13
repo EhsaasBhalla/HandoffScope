@@ -10,12 +10,15 @@ from pydantic import BaseModel
 
 class QuestionResponseCreate(BaseModel):
     response_text: str
+    attachments: Optional[list[dict[str, Any]]] = None
+    evidence_references: Optional[list[dict[str, Any]]] = None
 
 
 class QuestionReviewRequest(BaseModel):
     action: str  # "accept" | "reject" | "amend"
     notes: Optional[str] = None
     amended_text: Optional[str] = None
+    attachments: Optional[list[dict[str, Any]]] = None
 
 
 class QuestionCreate(BaseModel):
@@ -56,6 +59,7 @@ class QuestionResponseOut(BaseModel):
     ai_model: Optional[str] = None
     answer_status: Optional[str] = None
     evidence_references: list[dict[str, Any]] = []
+    attachments: list[dict[str, Any]] = []
     limitations: Optional[str] = None
     conflicts: list[str] = []
     provenance: Optional[dict[str, Any]] = None

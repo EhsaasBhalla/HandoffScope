@@ -114,9 +114,13 @@ export default function QuestionsPage() {
     }
   }
 
-  const handleAnswerSubmit = useCallback(async (questionId, text) => {
+  const handleAnswerSubmit = useCallback(async (questionId, text, options = {}) => {
     try {
-      await questionApi.submitResponse(questionId, { response_text: text });
+      await questionApi.submitResponse(questionId, {
+        response_text: text,
+        attachments: options.attachments,
+        evidence_references: options.evidence_references,
+      });
       loadQuestions();
     } catch (err) {
       alert('Failed to submit answer: ' + (err.data?.detail || err.message));

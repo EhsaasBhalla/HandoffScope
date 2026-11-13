@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -160,6 +160,7 @@ def delete_document(
 @router.get("/documents/{document_id}/download")
 def download_document_bytes(
     document_id: uuid.UUID,
+    inline: bool = Query(default=False, description="Whether to display inline in browser tab"),
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -179,11 +180,22 @@ def download_document_bytes(
         raise HTTPException(status_code=404, detail="Stored document object unavailable") from exc
 
     safe_disp = (doc.original_filename or "document").replace('"', "_")
+    disp_mode = "inline" if inline else "attachment"
     return Response(
         content=raw,
         media_type=doc.mime_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_disp}"',
+            "Content-Disposition": f'{disp_mode}; filename="{safe_disp}"',
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/documents/{document_id}/view")
+def view_document_bytes(
+    document_id: uuid.UUID,
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Open stored document bytes inline in browser tab (PDF, Markdown, TXT, DOCX)."""
+    return download_document_bytes(document_id=document_id, inline=True, user=user, db=db)

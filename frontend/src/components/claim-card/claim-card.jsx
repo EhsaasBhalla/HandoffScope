@@ -19,6 +19,7 @@ import {
   XCircle,
   RotateCcw,
   History,
+  Sparkles,
 } from 'lucide-react';
 import { evidenceApi } from '../../api/evidence.api';
 import { EvidenceStateBadge } from '../evidence-state-badge/evidence-state-badge';
@@ -41,7 +42,30 @@ function ClaimCardComponent({
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenSuccess, setRegenSuccess] = useState(false);
   const [actionError, setActionError] = useState(null);
+
+  const handleRegenerateDecision = async (e) => {
+    e.stopPropagation();
+    if (isRegenerating || !claim?.id) return;
+    setIsRegenerating(true);
+    setActionError(null);
+    try {
+      const res = await evidenceApi.regenerateSingleDecision(claim.id);
+      setRegenSuccess(true);
+      if (res?.claim) {
+        setEditTitle(res.claim.title || editTitle);
+        setEditBody(res.claim.body_text || editBody);
+      }
+      setTimeout(() => setRegenSuccess(false), 3000);
+      window.dispatchEvent(new CustomEvent('claim-updated', { detail: { claimId: claim.id } }));
+    } catch (err) {
+      setActionError(err?.data?.detail || err?.message || 'Failed to regenerate decision');
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   const [editTitle, setEditTitle] = useState(claim?.title || '');
   const [editBody, setEditBody] = useState(claim?.body_text || '');
@@ -244,6 +268,23 @@ function ClaimCardComponent({
                   <FolderInput size={12} /> Move
                 </button>
               )
+            )}
+
+            {claim.claim_type === 'DECISION' && !isEditing && (
+              <button
+                type="button"
+                className={styles.actionBtn}
+                style={{
+                  backgroundColor: regenSuccess ? 'rgba(34, 197, 94, 0.15)' : undefined,
+                  color: regenSuccess ? '#22c55e' : undefined,
+                  borderColor: regenSuccess ? '#22c55e' : undefined,
+                }}
+                disabled={isRegenerating}
+                onClick={handleRegenerateDecision}
+                title="Re-synthesize decision rationale and groundings from latest project sources"
+              >
+                <Sparkles size={12} /> {isRegenerating ? 'Regenerating…' : regenSuccess ? 'Regenerated!' : 'Regenerate'}
+              </button>
             )}
 
             {onUpdateClaim && !isEditing && (

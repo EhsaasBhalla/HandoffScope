@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequireCapability, get_db
 from app.modules.timeline import service
-from app.modules.timeline.schemas import TimelineResponse
+from app.modules.timeline.schemas import GitHistoryResponse, TimelineResponse
 
 router = APIRouter(tags=["timeline"])
 
@@ -43,6 +43,32 @@ def get_project_timeline(
         search=search,
         date_from=date_from,
         date_to=date_to,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/git-history",
+    response_model=GitHistoryResponse,
+    dependencies=[Depends(RequireCapability("project.view"))],
+)
+def get_project_git_history(
+    project_id: uuid.UUID,
+    search: str | None = Query(default=None, description="Search commit message or SHA"),
+    author: str | None = Query(default=None, description="Filter by commit author name or login"),
+    source_id: uuid.UUID | None = Query(default=None, description="Filter by connected source repository ID"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=30, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Retrieve structured, GitHub-style commit history for a project across its connected repositories."""
+    return service.get_project_git_history(
+        db,
+        project_id,
+        search=search,
+        author=author,
+        source_id=source_id,
         page=page,
         per_page=per_page,
     )

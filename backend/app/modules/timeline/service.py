@@ -21,7 +21,7 @@ def _to_utc(dt: datetime | None) -> datetime | None:
         return None
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 from app.modules.sources.models import ConnectedSource
-from app.modules.timeline.schemas import TimelineItemOut, TimelineResponse
+from app.modules.timeline.schemas import GitCommitOut, GitHistoryResponse, TimelineItemOut, TimelineResponse
 from app.modules.workspaces.models import User
 
 
@@ -241,4 +241,113 @@ def get_project_timeline(
         per_page=per_page,
         total_pages=total_pages,
         event_types=available_event_types,
+    )
+
+
+def get_project_git_history(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    search: str | None = None,
+    author: str | None = None,
+    source_id: uuid.UUID | None = None,
+    page: int = 1,
+    per_page: int = 30,
+) -> GitHistoryResponse:
+    """Fetch paginated, chronological git commits for a project across its connected repositories."""
+    sources_query = db.query(ConnectedSource).filter(ConnectedSource.project_id == project_id)
+    if source_id:
+        sources_query = sources_query.filter(ConnectedSource.id == source_id)
+    sources = sources_query.all()
+    source_ids = [s.id for s in sources]
+    sources_map = {s.id: s for s in sources}
+
+    if not source_ids:
+        return GitHistoryResponse(items=[], total=0, page=page, per_page=per_page, total_pages=1)
+
+    # Pre-load users for display name lookup
+    users = db.query(User).all()
+    users_map = {u.id: u for u in users}
+
+    records = (
+        db.query(SourceRecord)
+        .filter(
+            SourceRecord.connected_source_id.in_(source_ids),
+            SourceRecord.record_type == SourceRecordType.COMMIT,
+        )
+        .all()
+    )
+
+    items: list[GitCommitOut] = []
+    min_dt = datetime.min.replace(tzinfo=timezone.utc)
+
+    for rec in records:
+        src = sources_map.get(rec.connected_source_id)
+        src_name = src.name if src else "Repository"
+        meta = rec.metadata_json or {}
+
+        mapped_user = users_map.get(rec.author_mapped_user_id) if rec.author_mapped_user_id else None
+        mapped_user_name = mapped_user.display_name if mapped_user else None
+
+        commit_dt = _to_utc(rec.external_created_at or rec.created_at)
+        sha = rec.external_id or ""
+        short_sha = sha[:7] if len(sha) >= 7 else sha
+
+        title = rec.title or (rec.body.split("\n")[0] if rec.body else f"Commit {short_sha}")
+        body_text = rec.body if rec.body and rec.body != title else None
+
+        items.append(
+            GitCommitOut(
+                id=rec.id,
+                sha=sha,
+                short_sha=short_sha,
+                title=title,
+                message=body_text,
+                author_name=rec.author_name or rec.author_external_id or "Unknown",
+                author_external_id=rec.author_external_id,
+                author_mapped_user_id=rec.author_mapped_user_id,
+                author_mapped_user_name=mapped_user_name,
+                committed_at=commit_dt,
+                url=rec.url,
+                source_id=rec.connected_source_id,
+                source_name=src_name,
+                branch=meta.get("branch") or meta.get("ref"),
+                stats=meta.get("stats"),
+                files=meta.get("files"),
+            )
+        )
+
+    # Filtering
+    if author:
+        q_author = author.lower().strip()
+        items = [
+            i for i in items
+            if (i.author_name and q_author in i.author_name.lower())
+            or (i.author_external_id and q_author in i.author_external_id.lower())
+            or (i.author_mapped_user_name and q_author in i.author_mapped_user_name.lower())
+        ]
+
+    if search:
+        q_search = search.lower().strip()
+        items = [
+            i for i in items
+            if (i.title and q_search in i.title.lower())
+            or (i.message and q_search in i.message.lower())
+            or (i.sha and q_search in i.sha.lower())
+        ]
+
+    # Sort reverse chronological by commit date
+    items.sort(key=lambda x: _to_utc(x.committed_at) or min_dt, reverse=True)
+
+    total = len(items)
+    total_pages = math.ceil(total / per_page) if per_page > 0 else 1
+    offset = (page - 1) * per_page
+    paginated = items[offset : offset + per_page]
+
+    return GitHistoryResponse(
+        items=paginated,
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
     )

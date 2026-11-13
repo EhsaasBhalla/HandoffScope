@@ -104,7 +104,14 @@ def submit_question_response(
         raise HTTPException(status_code=404, detail="Question not found")
     require_case_capability(db, user, q.case_id, "question.answer")
     try:
-        return add_response(db, question_id=question_id, user_id=user.id, response_text=body.response_text)
+        return add_response(
+            db,
+            question_id=question_id,
+            user_id=user.id,
+            response_text=body.response_text,
+            attachments=body.attachments,
+            evidence_references=body.evidence_references,
+        )
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
@@ -133,6 +140,7 @@ def review_question_response(
             action=body.action,
             notes=body.notes,
             amended_text=body.amended_text,
+            attachments=body.attachments,
         )
     except ValueError as exc:
         db.rollback()
