@@ -63,7 +63,11 @@ def post_case_question(
     """Create a new question for a handover case."""
     require_case_capability(db, user, case_id, "question.create")
     body.case_id = case_id
-    return create_question(db, user_id=user.id, data=body)
+    try:
+        return create_question(db, user_id=user.id, data=body)
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/questions/{question_id}/generate-answer", response_model=QuestionOut)
@@ -80,7 +84,11 @@ def generate_ai_question_answer(
     try:
         return generate_ai_answer(db, question_id=question_id, user_id=user.id)
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/questions/{question_id}/responses", response_model=QuestionOut)
@@ -98,7 +106,11 @@ def submit_question_response(
     try:
         return add_response(db, question_id=question_id, user_id=user.id, response_text=body.response_text)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.patch("/questions/{question_id}/review", response_model=QuestionOut)
@@ -123,7 +135,11 @@ def review_question_response(
             amended_text=body.amended_text,
         )
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/questions/{question_id}", response_model=QuestionOut)
@@ -155,7 +171,11 @@ def patch_question(
     try:
         return update_question(db, question_id=question_id, user_id=user.id, data=body)
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.patch("/question-responses/{response_id}/review", response_model=QuestionOut)
@@ -183,4 +203,8 @@ def review_response_direct(
             amended_text=body.amended_text,
         )
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise

@@ -49,11 +49,43 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
 ):
     """Aggregate live metrics for the dashboard view."""
-    # Find user's accessible projects
-    proj_query = db.query(Project)
+    # Find user's accessible projects scoped strictly to user's workspace memberships
+    user_ws_ids = [
+        wm.workspace_id
+        for wm in db.query(WorkspaceMembership.workspace_id)
+        .filter(WorkspaceMembership.user_id == user.id)
+        .all()
+    ]
+
     if workspace_id:
-        proj_query = proj_query.filter(Project.workspace_id == workspace_id)
-    projects = proj_query.all()
+        if workspace_id not in user_ws_ids:
+            return DashboardStatsResponse(
+                projects_count=0,
+                active_cases_count=0,
+                transferred_cases_count=0,
+                connected_sources_count=0,
+                pending_reviews_count=0,
+                open_questions_count=0,
+                active_cases=[],
+                needs_attention=[],
+                recent_activity=[],
+            )
+        projects = db.query(Project).filter(Project.workspace_id == workspace_id).all()
+    else:
+        if not user_ws_ids:
+            return DashboardStatsResponse(
+                projects_count=0,
+                active_cases_count=0,
+                transferred_cases_count=0,
+                connected_sources_count=0,
+                pending_reviews_count=0,
+                open_questions_count=0,
+                active_cases=[],
+                needs_attention=[],
+                recent_activity=[],
+            )
+        projects = db.query(Project).filter(Project.workspace_id.in_(user_ws_ids)).all()
+
     project_ids = [p.id for p in projects]
 
     projects_count = len(projects)
@@ -160,27 +192,36 @@ def get_dashboard_stats(
             "severity": "high",
         })
 
-    # Recent activity
-    recent_events = (
-        db.query(AuditEvent)
-        .order_by(AuditEvent.created_at.desc())
-        .limit(6)
-        .all()
-    )
-    actor_ids = {e.actor_id for e in recent_events if e.actor_id}
-    actors = {u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
-
+    # Recent activity scoped strictly to user's accessible projects/cases
     recent_activity = []
-    for e in recent_events:
-        u = actors.get(e.actor_id)
-        recent_activity.append({
-            "id": str(e.id),
-            "created_at": e.created_at.isoformat(),
-            "action": e.action,
-            "actor_name": u.display_name if u else "System",
-            "entity_type": e.entity_type,
-            "summary": e.summary,
-        })
+    if project_ids or case_ids:
+        from sqlalchemy import or_
+        audit_filters = []
+        if project_ids:
+            audit_filters.append((AuditEvent.entity_type == "project") & (AuditEvent.entity_id.in_(project_ids)))
+        if case_ids:
+            audit_filters.append((AuditEvent.entity_type == "handover_case") & (AuditEvent.entity_id.in_(case_ids)))
+
+        recent_events = (
+            db.query(AuditEvent)
+            .filter(or_(*audit_filters))
+            .order_by(AuditEvent.created_at.desc())
+            .limit(6)
+            .all()
+        )
+        actor_ids = {e.actor_id for e in recent_events if e.actor_id}
+        actors = {u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
+
+        for e in recent_events:
+            u = actors.get(e.actor_id)
+            recent_activity.append({
+                "id": str(e.id),
+                "created_at": e.created_at.isoformat(),
+                "action": e.action,
+                "actor_name": u.display_name if u else "System",
+                "entity_type": e.entity_type,
+                "summary": e.summary,
+            })
 
     return DashboardStatsResponse(
         projects_count=projects_count,

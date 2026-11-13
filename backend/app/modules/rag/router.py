@@ -71,10 +71,13 @@ def ask_rag_endpoint(
     try:
         return ask_handover_question(db, case_id=case_id, user=user, body=body)
     except ForbiddenError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except HandoffScopeError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -96,6 +99,8 @@ def reindex_rag_endpoint(
             version_id=req.version_id,
         )
     except ForbiddenError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

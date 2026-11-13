@@ -17,6 +17,9 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -378,6 +381,22 @@ class RequireCapability:
                 s = db.query(ConnectedSource).filter(ConnectedSource.id == uuid.UUID(str(path_params["source_id"]))).first()
                 if s:
                     project_id = s.project_id
+            except (TypeError, ValueError):
+                pass
+        if project_id is None and path_params.get("document_id"):
+            from app.modules.documents.models import Document
+            try:
+                d = db.query(Document).filter(Document.id == uuid.UUID(str(path_params["document_id"]))).first()
+                if d:
+                    project_id = d.project_id
+            except (TypeError, ValueError):
+                pass
+        if project_id is None and path_params.get("mapping_id"):
+            from app.modules.identity.models import IdentityMapping
+            try:
+                im = db.query(IdentityMapping).filter(IdentityMapping.id == uuid.UUID(str(path_params["mapping_id"]))).first()
+                if im:
+                    project_id = im.project_id
             except (TypeError, ValueError):
                 pass
 

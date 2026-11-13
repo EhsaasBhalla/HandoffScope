@@ -1,4 +1,4 @@
-"""Embedding provider abstraction for Conversational RAG (Round 3).
+"""Embedding provider abstraction for Conversational RAG.
 
 Supports Google Gemini Embedding REST API (`gemini-embedding-001` with configurable
 Matryoshka dimensionality) and an honest `lexical_only` fallback when live embedding

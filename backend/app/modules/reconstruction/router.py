@@ -51,7 +51,14 @@ def trigger_reconstruction(
     user: User = Depends(get_current_active_user),
 ):
     """Trigger the knowledge reconstruction pipeline for a handover case."""
-    return service.run_extraction(db, case_id, actor_id=user.id)
+    try:
+        return service.run_extraction(db, case_id, actor_id=user.id)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get(

@@ -5,55 +5,41 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.credentials import encrypt_source_config, sanitize_source_config_for_api
-from app.core.dependencies import get_current_active_user, get_db, get_user_context_capabilities, require_case_capability
-from app.db.enums import CaseParticipantRole, ConnectionStatus, JobStatus, JobType, Sensitivity, SourceType, SyncRunStatus
-from app.modules.jobs.models import Job
-from app.modules.sources.models import ConnectedSource, SyncRun
-from app.modules.jobs.service import enqueue_job
+from app.core.dependencies import (
+    get_current_active_user,
+    get_db,
+    require_case_capability,
+    require_project_capability,
+)
+from app.db.enums import ConnectionStatus, JobStatus, JobType, Sensitivity, SourceType, SyncRunStatus
 from app.modules.audit.service import create_audit_event
+from app.modules.jobs.models import Job
+from app.modules.jobs.service import enqueue_job
+from app.modules.projects.models import Project
+from app.modules.sources.models import ConnectedSource, SyncRun
+from app.modules.sources.schemas import (
+    RefreshRequest,
+    SourceConnectRequest,
+    SourceRecordDetailOut,
+    SourceResponse,
+    SyncRunResponse,
+)
 
 router = APIRouter(tags=["Sources"])
 
-
-class SyncRunResponse(BaseModel):
-    id: uuid.UUID
-    status: str
-    records_fetched: int
-    records_created: int
-    records_updated: int
-    records_skipped: int = 0
-    error_message: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class SourceResponse(BaseModel):
-    id: uuid.UUID
-    project_id: uuid.UUID
-    source_type: str
-    name: str
-    external_id: str | None = None
-    connection_status: str
-    config: dict | None = None
-    created_at: str
-    updated_at: str | None = None
-    last_successful_sync_at: str | None = None
-    last_sync_run: SyncRunResponse | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class SourceConnectRequest(BaseModel):
-    source_type: str
-    name: str
-    external_id: str | None = None
-    config: dict | None = None
+# Re-export for backward compatibility
+__all__ = [
+    "SyncRunResponse",
+    "SourceResponse",
+    "SourceConnectRequest",
+    "RefreshRequest",
+    "SourceRecordDetailOut",
+    "router",
+]
 
 
 def _build_sync_run_response(db: Session, run: SyncRun) -> SyncRunResponse:
@@ -75,7 +61,7 @@ def _build_sync_run_response(db: Session, run: SyncRun) -> SyncRunResponse:
             break
     return SyncRunResponse(
         id=run.id,
-        status=run.status.value,
+        status=run.status.value if hasattr(run.status, "value") else str(run.status),
         records_fetched=run.records_fetched,
         records_created=run.records_created,
         records_updated=run.records_updated,
@@ -92,7 +78,12 @@ def list_sources(
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List connected sources for a project."""
+    """List connected sources for a project (project membership required)."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    require_project_capability(db, user, project_id, "source.view")
+
     sources = (
         db.query(ConnectedSource)
         .filter(ConnectedSource.project_id == project_id)
@@ -118,10 +109,10 @@ def list_sources(
             SourceResponse(
                 id=s.id,
                 project_id=s.project_id,
-                source_type=s.source_type.value,
+                source_type=s.source_type.value if hasattr(s.source_type, "value") else str(s.source_type),
                 name=s.name,
                 external_id=s.external_id,
-                connection_status=s.connection_status.value,
+                connection_status=s.connection_status.value if hasattr(s.connection_status, "value") else str(s.connection_status),
                 config=sanitize_source_config_for_api(s.config),
                 created_at=s.created_at.isoformat(),
                 updated_at=s.updated_at.isoformat() if s.updated_at else None,
@@ -140,26 +131,19 @@ def connect_source(
     db: Session = Depends(get_db),
 ):
     """Connect a new source to a project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    require_project_capability(db, user, project_id, "source.connect")
+
     try:
         source_type = SourceType(body.source_type)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Unknown source type: {body.source_type}")
 
-    # Check for duplicate
-    existing = (
-        db.query(ConnectedSource)
-        .filter(
-            ConnectedSource.project_id == project_id,
-            ConnectedSource.source_type == source_type,
-            ConnectedSource.external_id == body.external_id,
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="Source already connected")
-
     config_data = dict(body.config) if body.config else {}
     normalized_external_id = body.external_id
+
     if source_type == SourceType.GITHUB_REPO and (not config_data.get("owner") or not config_data.get("repo")):
         from app.modules.sources.url_parser import parse_github_repo_identifier
 
@@ -205,6 +189,19 @@ def connect_source(
         config_data["project_key"] = proj_key
         normalized_external_id = normalized_external_id or f"{site_url}/{proj_key}"
 
+    # Check for duplicate with normalized external ID
+    existing = (
+        db.query(ConnectedSource)
+        .filter(
+            ConnectedSource.project_id == project_id,
+            ConnectedSource.source_type == source_type,
+            ConnectedSource.external_id == normalized_external_id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Source already connected")
+
     encrypted_config = encrypt_source_config(config_data)
 
     source = ConnectedSource(
@@ -216,28 +213,38 @@ def connect_source(
         config=encrypted_config,
         connected_by_id=user.id,
     )
-    db.add(source)
-    db.flush()
+    try:
+        db.add(source)
+        db.flush()
 
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="source.connected",
-        entity_type="connected_source",
-        entity_id=source.id,
-        details={"source_type": body.source_type, "name": body.name, "external_id": normalized_external_id},
-        summary=f"Connected source: {body.name}",
-    )
-    db.commit()
-    db.refresh(source)
+        create_audit_event(
+            db,
+            actor_id=user.id,
+            action="source.connected",
+            entity_type="connected_source",
+            entity_id=source.id,
+            details={"source_type": body.source_type, "name": body.name, "external_id": normalized_external_id},
+            summary=f"Connected source: {body.name}",
+        )
+        db.commit()
+        db.refresh(source)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Source already connected to this project",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
     return SourceResponse(
         id=source.id,
         project_id=source.project_id,
-        source_type=source.source_type.value,
+        source_type=source.source_type.value if hasattr(source.source_type, "value") else str(source.source_type),
         name=source.name,
         external_id=source.external_id,
-        connection_status=source.connection_status.value,
+        connection_status=source.connection_status.value if hasattr(source.connection_status, "value") else str(source.connection_status),
         config=sanitize_source_config_for_api(source.config),
         created_at=source.created_at.isoformat(),
     )
@@ -253,6 +260,7 @@ def trigger_import(
     source = db.query(ConnectedSource).filter(ConnectedSource.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    require_project_capability(db, user, source.project_id, "source.import")
 
     # Avoid double-triggering if a sync is currently pending or running
     active_job = (
@@ -267,18 +275,22 @@ def trigger_import(
     if active_job:
         return {"message": "Import job already in progress", "job_id": str(active_job.id)}
 
-    job = enqueue_job(
-        db,
-        job_type=JobType.SOURCE_IMPORT,
-        entity_type="connected_source",
-        entity_id=source_id,
-        created_by_id=user.id,
-        params={"source_id": str(source_id)},
-        idempotency_key=f"import-{source_id}-{uuid.uuid4().hex[:12]}",
-        queue_name="handoffscope-import",
-        task_func="app.workers.import_task.run_import",
-    )
-    db.commit()
+    try:
+        job = enqueue_job(
+            db,
+            job_type=JobType.SOURCE_IMPORT,
+            entity_type="connected_source",
+            entity_id=source_id,
+            created_by_id=user.id,
+            params={"source_id": str(source_id)},
+            idempotency_key=f"import-{source_id}-{uuid.uuid4().hex[:12]}",
+            queue_name="handoffscope-import",
+            task_func="app.workers.import_task.run_import",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"message": "Import job enqueued", "job_id": str(job.id)}
 
@@ -290,6 +302,11 @@ def list_sync_runs(
     db: Session = Depends(get_db),
 ):
     """List sync runs for a source."""
+    source = db.query(ConnectedSource).filter(ConnectedSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    require_project_capability(db, user, source.project_id, "source.view")
+
     runs = (
         db.query(SyncRun)
         .filter(SyncRun.source_id == source_id)
@@ -298,10 +315,6 @@ def list_sync_runs(
         .all()
     )
     return [_build_sync_run_response(db, r) for r in runs]
-
-
-class RefreshRequest(BaseModel):
-    simulate_modification: bool = False
 
 
 @router.post("/sources/{source_id}/refresh")
@@ -313,6 +326,12 @@ def refresh_source_endpoint(
 ):
     """Manually refresh a source and propagate staleness."""
     from app.modules.sources.service import refresh_source
+
+    source = db.query(ConnectedSource).filter(ConnectedSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    require_project_capability(db, user, source.project_id, "source.import")
+
     simulate = body.simulate_modification if body else False
     try:
         return refresh_source(
@@ -334,6 +353,8 @@ def refresh_case_sources_endpoint(
 ):
     """Manually refresh all connected sources for a handover case and propagate staleness."""
     from app.modules.sources.service import refresh_case_sources
+
+    require_case_capability(db, user, case_id, "source.import")
     simulate = body.simulate_modification if body else False
     try:
         return refresh_case_sources(
@@ -344,20 +365,6 @@ def refresh_case_sources_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-class SourceRecordDetailOut(BaseModel):
-    id: uuid.UUID
-    record_type: str
-    external_id: str
-    title: str | None = None
-    body: str | None = None
-    author_name: str | None = None
-    state: str | None = None
-    url: str | None = None
-    sensitivity: str
-    external_created_at: str | None = None
-    metadata_json: dict | None = None
 
 
 @router.get("/cases/{case_id}/sources/records/{record_id}", response_model=SourceRecordDetailOut)
@@ -412,4 +419,3 @@ def get_case_source_record(
         external_created_at=record.external_created_at.isoformat() if record.external_created_at else None,
         metadata_json=record.metadata_json,
     )
-

@@ -8,15 +8,18 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db, require_case_capability
+from app.modules.evidence.clearance import RESTRICTED_EVIDENCE_PLACEHOLDER, has_restricted_clearance
 from app.modules.evidence.models import ClaimEvidence
 from app.modules.evidence.router import _enrich_evidence_out
 from app.modules.evidence.schemas import ClaimDetailOut
 from app.modules.evidence.service import review_claim
+from app.modules.handover_cases.models import HandoverCase
 from app.modules.reviews.models import HandoverVersion
+from app.modules.transfer_packs.models import Claim, TransferPack
 from app.modules.reviews.schemas import (
     CreateVersionRequest,
     HandoverVersionDetailOut,
@@ -30,6 +33,7 @@ from app.modules.reviews.service import (
     get_version_detail,
     list_case_versions,
 )
+from app.modules.sharing.redactor import redact_secrets_inline
 from app.modules.workspaces.models import User
 
 router = APIRouter(tags=["Reviews & Approval"])
@@ -86,10 +90,17 @@ def review_claim_endpoint(
     claim_obj = db.query(Claim).filter(Claim.id == claim_id).first()
     if not claim_obj:
         raise HTTPException(status_code=404, detail="Claim not found")
+
+    allow_restricted = True
     if claim_obj.transfer_pack_id:
         pack_obj = db.query(TransferPack).filter(TransferPack.id == claim_obj.transfer_pack_id).first()
         if pack_obj and pack_obj.case_id:
             require_case_capability(db, user, pack_obj.case_id, "review.submit")
+            case_obj = db.query(HandoverCase).filter(HandoverCase.id == pack_obj.case_id).first()
+            if case_obj:
+                allow_restricted = has_restricted_clearance(
+                    db, user_id=user.id, project_id=case_obj.project_id, case_id=case_obj.id, user=user
+                )
 
     try:
         claim = review_claim(
@@ -101,7 +112,11 @@ def review_claim_endpoint(
             reason=body.reason,
         )
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
     evidence_records = (
         db.query(ClaimEvidence)
@@ -109,16 +124,31 @@ def review_claim_endpoint(
         .order_by(ClaimEvidence.created_at.asc())
         .all()
     )
-    evidence_items = [_enrich_evidence_out(ev, db) for ev in evidence_records]
+    is_restr = any(ev.is_restricted for ev in evidence_records)
+    evidence_items = [_enrich_evidence_out(ev, db, allow_restricted=allow_restricted) for ev in evidence_records]
+
+    if is_restr and not allow_restricted:
+        body_text = RESTRICTED_EVIDENCE_PLACEHOLDER
+        original_body_text = None
+        review_notes = None
+    else:
+        body_text = claim.body_text
+        original_body_text = claim.original_body_text
+        review_notes = claim.review_notes
+        if not allow_restricted:
+            if body_text:
+                body_text = redact_secrets_inline(body_text).redacted_text
+            if original_body_text:
+                original_body_text = redact_secrets_inline(original_body_text).redacted_text
 
     return ClaimDetailOut(
         id=claim.id,
         transfer_pack_id=claim.transfer_pack_id,
         claim_type=claim.claim_type,
         title=claim.title,
-        body_text=claim.body_text,
-        original_body_text=claim.original_body_text,
-        review_notes=claim.review_notes,
+        body_text=body_text,
+        original_body_text=original_body_text,
+        review_notes=review_notes,
         evidence_state=claim.evidence_state,
         freshness=claim.freshness,
         review_state=claim.review_state,
@@ -151,7 +181,11 @@ def create_version_endpoint(
             override_reason=body.override_reason,
         )
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
     return HandoverVersionDetailOut(
         **_to_version_out(version).model_dump(),

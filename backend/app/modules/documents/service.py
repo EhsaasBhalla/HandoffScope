@@ -51,6 +51,8 @@ def validate_upload(filename: str | None, content_type: str | None, size: int) -
     import os
     if not filename:
         return "Filename is required"
+    if size <= 0:
+        return "File cannot be empty"
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         return f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
@@ -148,3 +150,63 @@ def create_document(
     )
 
     return doc
+
+
+def delete_document(
+    db: Session,
+    *,
+    document: Document,
+    actor_id: uuid.UUID | None = None,
+) -> None:
+    """Safely delete a document, cascading cleanup of chunks, records, and storage file."""
+    from app.db.enums import SourceRecordType
+    from app.modules.audit.service import create_audit_event
+    from app.modules.ingestion.models import SourceRecord
+    from app.modules.rag.models import KnowledgeChunk
+    from app.storage.factory import get_storage_backend
+
+    doc_id_str = str(document.id)
+    storage_path = document.storage_path
+    project_id = document.project_id
+    filename = document.original_filename
+
+    try:
+        # 1. Cascade cleanup KnowledgeChunks associated with this document
+        db.query(KnowledgeChunk).filter(
+            KnowledgeChunk.source_kind == "DOCUMENT_SECTION",
+            KnowledgeChunk.source_ref_id == doc_id_str,
+        ).delete(synchronize_session=False)
+
+        # 2. Cascade cleanup SourceRecords (DOCUMENT_SECTION) created for this document
+        db.query(SourceRecord).filter(
+            SourceRecord.record_type == SourceRecordType.DOCUMENT_SECTION,
+            SourceRecord.external_id == doc_id_str,
+        ).delete(synchronize_session=False)
+
+        # 3. Delete Document record from database
+        db.delete(document)
+
+        # 4. Record audit event
+        create_audit_event(
+            db,
+            actor_id=actor_id,
+            action="document.deleted",
+            entity_type="document",
+            entity_id=uuid.UUID(doc_id_str),
+            details={"project_id": str(project_id), "filename": filename},
+            summary=f"Deleted document: {filename}",
+        )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    # 5. Delete from storage backend (graceful error handling so file deletion failure doesn't leave ghost DB record)
+    if storage_path:
+        try:
+            backend = get_storage_backend()
+            backend.delete(storage_path)
+        except Exception as exc:
+            logger.warning("Failed to delete storage file %s for document %s: %s", storage_path, doc_id_str, exc)
+

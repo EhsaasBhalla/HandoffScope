@@ -58,6 +58,11 @@ def decode_token(token: str) -> dict:
 
     Raises HTTPException 401 if the token is invalid or expired.
     """
+    if not token or not isinstance(token, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format",
+        )
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("sub") is None:
@@ -66,7 +71,9 @@ def decode_token(token: str) -> dict:
                 detail="Invalid token: missing subject",
             )
         return payload
-    except JWTError as exc:
+    except HTTPException:
+        raise
+    except (JWTError, ValueError, TypeError, AttributeError, Exception) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired token: {exc}",
@@ -79,3 +86,10 @@ def decode_token(token: str) -> dict:
 def generate_csrf_token() -> str:
     """Generate a cryptographically secure CSRF token."""
     return secrets.token_hex(32)
+
+
+def validate_csrf_token(csrf_token: str | None, expected_token: str | None) -> bool:
+    """Securely compare CSRF token to prevent timing attacks."""
+    if not csrf_token or not expected_token:
+        return False
+    return secrets.compare_digest(csrf_token.strip(), expected_token.strip())

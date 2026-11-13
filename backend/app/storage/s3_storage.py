@@ -60,8 +60,9 @@ class S3CompatibleStorageBackend(StorageBackend):
         body: bytes = b"",
         content_type: str | None = None,
     ) -> httpx.Response:
-        clean_key = key.lstrip("/")
-        if ".." in clean_key.split("/"):
+        clean_key = key.replace("\\", "/").lstrip("/")
+        parts = clean_key.split("/")
+        if ".." in parts or any(p in ("..", "%2e%2e", "%2E%2E") for p in parts):
             raise ValueError("Path traversal detected")
         canonical_uri = "/" + quote(f"{self.bucket}/{clean_key}", safe="/-_.~")
         url = f"{self.endpoint_url}{canonical_uri}"
@@ -76,8 +77,9 @@ class S3CompatibleStorageBackend(StorageBackend):
             "x-amz-content-sha256": payload_hash,
             "x-amz-date": amz_date,
         }
-        if content_type and method in ("PUT", "POST"):
-            headers_to_sign["content-type"] = content_type
+        clean_ct = content_type.strip() if content_type else None
+        if clean_ct and method in ("PUT", "POST"):
+            headers_to_sign["content-type"] = clean_ct
 
         sorted_keys = sorted(headers_to_sign.keys())
         canonical_headers = "".join(f"{k}:{headers_to_sign[k]}\n" for k in sorted_keys)
@@ -110,8 +112,8 @@ class S3CompatibleStorageBackend(StorageBackend):
             "x-amz-content-sha256": payload_hash,
             "x-amz-date": amz_date,
         }
-        if content_type and method in ("PUT", "POST"):
-            req_headers["Content-Type"] = content_type
+        if clean_ct and method in ("PUT", "POST"):
+            req_headers["Content-Type"] = clean_ct
 
         return self._client.request(method, url, headers=req_headers, content=body if method in ("PUT", "POST") else None)
 
@@ -123,14 +125,15 @@ class S3CompatibleStorageBackend(StorageBackend):
         return f"s3://{self.bucket}/{path.lstrip('/')}"
 
     def _extract_key(self, path: str) -> str:
+        clean = path.replace("\\", "/")
         prefix = f"s3://{self.bucket}/"
-        if path.startswith(prefix):
-            return path[len(prefix) :]
-        if path.startswith("s3://"):
+        if clean.startswith(prefix):
+            return clean[len(prefix) :]
+        if clean.startswith("s3://"):
             # Strip arbitrary s3://bucket/ prefix cleanly
-            parts = path[5:].split("/", 1)
+            parts = clean[5:].split("/", 1)
             return parts[1] if len(parts) == 2 else ""
-        return path.lstrip("/")
+        return clean.lstrip("/")
 
     def load(self, path: str) -> bytes:
         key = self._extract_key(path)

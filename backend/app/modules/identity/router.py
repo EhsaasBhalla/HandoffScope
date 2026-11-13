@@ -87,6 +87,7 @@ def create_identity_mapping(
 @router.patch(
     "/identity-mappings/{mapping_id}",
     response_model=IdentityMappingOut,
+    dependencies=[Depends(RequireCapability("identity.manage"))],
 )
 def update_identity_mapping(
     mapping_id: uuid.UUID,

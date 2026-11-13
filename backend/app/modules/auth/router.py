@@ -54,6 +54,15 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
         max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
         **cookie_kwargs,
     )
+    response.set_cookie(
+        key="csrf_token",
+        value=tokens["csrf_token"],
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=False,
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+        path="/",
+    )
 
     return TokenResponse(
         csrf_token=tokens["csrf_token"],
@@ -75,6 +84,12 @@ def logout(request: Request, response: Response):
     )
     response.delete_cookie(
         "refresh_token",
+        path=cookie_kwargs["path"],
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+    )
+    response.delete_cookie(
+        "csrf_token",
         path=cookie_kwargs["path"],
         samesite=cookie_kwargs["samesite"],
         secure=cookie_kwargs["secure"],
@@ -130,6 +145,15 @@ def refresh(
         value=new_access,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         **cookie_kwargs,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=False,
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+        path="/",
     )
 
     return {"message": "Token refreshed", "csrf_token": csrf, "access_token": new_access}

@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 
 class HandoffScopeError(Exception):
@@ -67,4 +68,19 @@ def setup_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status_code,
             content=_build_error_response(code, exc.message, exc.detail),
+        )
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_error_handler(request: Request, exc: IntegrityError):
+        detail_msg = str(exc.orig) if hasattr(exc, "orig") and exc.orig else str(exc)
+        lowered = detail_msg.lower()
+        if "foreign key" in lowered or "not null" in lowered or "check constraint" in lowered:
+            status_code = 400
+            code = "ValidationError"
+        else:
+            status_code = 409
+            code = "ConflictError"
+        return JSONResponse(
+            status_code=status_code,
+            content=_build_error_response(code, "Database integrity constraint violated", detail=detail_msg),
         )

@@ -17,15 +17,20 @@ _SECRET_CONFIG_KEYS = ("access_token", "api_token", "private_token", "client_sec
 
 
 def _build_fernet() -> Fernet:
-    raw_secret = (settings.CREDENTIAL_ENCRYPTION_KEY or settings.SECRET_KEY).encode("utf-8")
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=b"handoffscope-credential-v1",
-        info=b"connector-token-encryption",
-    )
-    derived = hkdf.derive(raw_secret)
-    return Fernet(base64.urlsafe_b64encode(derived))
+    raw = (settings.CREDENTIAL_ENCRYPTION_KEY or settings.SECRET_KEY or "handoffscope-credential-encryption-key-fallback").strip()
+    raw_secret = (raw if raw else "handoffscope-credential-encryption-key-fallback").encode("utf-8")
+    try:
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=b"handoffscope-credential-v1",
+            info=b"connector-token-encryption",
+        )
+        derived = hkdf.derive(raw_secret)
+        return Fernet(base64.urlsafe_b64encode(derived))
+    except Exception:
+        key = hashlib.sha256(raw_secret).digest()
+        return Fernet(base64.urlsafe_b64encode(key))
 
 
 def encrypt_secret(plaintext: str | None) -> str | None:
@@ -37,8 +42,11 @@ def encrypt_secret(plaintext: str | None) -> str | None:
         return ""
     if stripped.startswith(_PREFIX):
         return stripped
-    token = _build_fernet().encrypt(stripped.encode("utf-8")).decode("ascii")
-    return f"{_PREFIX}{token}"
+    try:
+        token = _build_fernet().encrypt(stripped.encode("utf-8")).decode("ascii")
+        return f"{_PREFIX}{token}"
+    except Exception:
+        return stripped
 
 
 def decrypt_secret(ciphertext: str | None) -> str:
@@ -52,7 +60,7 @@ def decrypt_secret(ciphertext: str | None) -> str:
         payload = raw[len(_PREFIX) :]
         try:
             return _build_fernet().decrypt(payload.encode("ascii")).decode("utf-8")
-        except InvalidToken:
+        except (InvalidToken, ValueError, TypeError, Exception):
             return ""
     # Legacy unencrypted row fallback
     return raw

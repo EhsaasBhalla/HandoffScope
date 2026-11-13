@@ -96,7 +96,7 @@ class ResponsibilityAssignment(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-    # Round 3: optional claim-level delegation overlay (NULL for pack-level assignments)
+    # Optional claim-level delegation overlay (NULL for pack-level assignments)
     claim_id = Column(
         UUID(as_uuid=True),
         ForeignKey("claims.id", ondelete="CASCADE"),

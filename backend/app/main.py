@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from app.api.router import router as api_router
 from app.core.constants import APP_NAME, VERSION
@@ -69,13 +70,14 @@ def create_app() -> FastAPI:
     @app.api_route("/ready", methods=["GET", "HEAD"], tags=["System"])
     def readiness():
         """Readiness check — verifies database connectivity."""
+        db = SessionLocal()
         try:
-            db = SessionLocal()
             db.execute(text("SELECT 1"))
-            db.close()
             return {"status": "ready", "database": "connected"}
         except Exception as exc:
             return {"status": "not_ready", "database": str(exc)}
+        finally:
+            db.close()
 
     return app
 

@@ -1,4 +1,4 @@
-"""Deterministic inline secret & credential redaction filter (Round 3).
+"""Deterministic inline secret & credential redaction filter.
 
 Preserves original stored text untouched and produces policy-labeled redacted projections
 for shared views, RAG excerpts, exports, and indexed repository snippets.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-REDACTION_POLICY_VERSION = "r3-secret-filter-v1"
+REDACTION_POLICY_VERSION = "secret-filter-v1"
 
 _PLACEHOLDER_MARKERS = (
     "example",
@@ -40,7 +40,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (
         "PRIVATE_KEY",
         re.compile(
-            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+            r"-----BEGIN (?:[A-Z0-9_-]+ +)?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9_-]+ +)?PRIVATE KEY-----",
             re.MULTILINE,
         ),
         "[REDACTED:PRIVATE_KEY]",
@@ -83,7 +83,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (
         "CONFIG_SECRET",
         re.compile(
-            r"(?i)\b([A-Z0-9_]*(?:PASSWORD|SECRET_KEY|CLIENT_SECRET|API_KEY|PRIVATE_KEY|ACCESS_TOKEN|AUTH_TOKEN))\s*([:=])\s*([\"']?)([^\s\"'`#,;]{10,})\3"
+            r"(?i)\b([A-Z0-9_]*?(?:PASSWORD|SECRET_KEY|CLIENT_SECRET|API_KEY|PRIVATE_KEY|ACCESS_TOKEN|AUTH_TOKEN))(\s*[:=]\s*)([\"']?)([^\s\"'`#,;]{10,})\3"
         ),
         "[REDACTED:SECRET]",
     ),

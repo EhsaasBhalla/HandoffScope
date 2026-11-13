@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.enums import ProcessingStatus, Sensitivity
@@ -45,6 +45,10 @@ class Document(UUIDMixin, TimestampMixin, Base):
     uploaded_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+    # Relationships
+    project: Mapped["Project"] = relationship("Project")
+    uploaded_by: Mapped["User | None"] = relationship("User", foreign_keys=[uploaded_by_id])
 
     def __repr__(self) -> str:
         return f"<Document {self.original_filename} status={self.processing_status.value}>"

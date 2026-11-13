@@ -45,6 +45,8 @@ class ConnectedSource(UUIDMixin, TimestampMixin, Base):
     )
 
     # Relationships
+    project: Mapped["Project"] = relationship("Project")
+    connected_by: Mapped["User | None"] = relationship("User", foreign_keys=[connected_by_id])
     sync_runs: Mapped[list[SyncRun]] = relationship(
         back_populates="source", cascade="all, delete-orphan"
     )

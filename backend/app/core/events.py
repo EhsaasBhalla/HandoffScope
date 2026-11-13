@@ -1,4 +1,4 @@
-"""In-process case event bus, single-use SSE stream tickets, and FastAPI SSE endpoint (Round 3).
+"""In-process case event bus, single-use SSE stream tickets, and FastAPI SSE endpoint.
 
 Deployment note: An in-process asyncio subscriber map delivers events instantaneously within a
 single backend worker process (`uvicorn --workers 1` in single-instance hosts like free-tier
@@ -50,6 +50,11 @@ class _StreamTicketRegistry:
             expired = [k for k, v in self._tickets.items() if v["expires_at"] < now]
             for k in expired:
                 self._tickets.pop(k, None)
+            # Memory safety: if registry size grows large, prune oldest entries
+            if len(self._tickets) >= 5000:
+                oldest_keys = sorted(self._tickets.keys(), key=lambda k: self._tickets[k]["expires_at"])[:1000]
+                for k in oldest_keys:
+                    self._tickets.pop(k, None)
             self._tickets[raw_ticket] = {
                 "user_id": user_id,
                 "case_id": case_id,
@@ -60,6 +65,11 @@ class _StreamTicketRegistry:
     def consume(self, *, ticket: str, case_id: uuid.UUID) -> uuid.UUID | None:
         with self._lock:
             entry = self._tickets.pop(ticket, None)
+            now = time.time()
+            if len(self._tickets) > 500:
+                expired = [k for k, v in self._tickets.items() if v["expires_at"] < now]
+                for k in expired:
+                    self._tickets.pop(k, None)
         if not entry:
             return None
         if entry["expires_at"] < time.time():
@@ -101,7 +111,11 @@ class CaseEventBus:
         }
         with self._lock:
             targets = list(self._subscribers.get(case_id, []))
+        dead_subscribers: list[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = []
         for loop, q in targets:
+            if loop.is_closed():
+                dead_subscribers.append((loop, q))
+                continue
             def _push(target_q: asyncio.Queue = q, item: dict = payload) -> None:
                 try:
                     target_q.put_nowait(item)
@@ -110,7 +124,15 @@ class CaseEventBus:
             try:
                 loop.call_soon_threadsafe(_push)
             except RuntimeError:
-                pass
+                dead_subscribers.append((loop, q))
+
+        if dead_subscribers:
+            with self._lock:
+                current = self._subscribers.get(case_id)
+                if current:
+                    self._subscribers[case_id] = [item for item in current if item not in dead_subscribers]
+                    if not self._subscribers[case_id]:
+                        self._subscribers.pop(case_id, None)
 
 
 _TICKETS = _StreamTicketRegistry()
@@ -189,6 +211,10 @@ async def stream_case_events(
                 except asyncio.TimeoutError:
                     # Periodic heartbeat keeps Render/reverse proxies from timing out idle SSE sockets
                     yield ": ping\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        except Exception:
+            pass
         finally:
             CASE_EVENT_BUS.unsubscribe(case_id, queue)
 

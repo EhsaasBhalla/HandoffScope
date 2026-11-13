@@ -431,10 +431,15 @@ def run_extraction(
                 db.flush()
                 claims_created += 1
 
-                # Link evidence
+                # Link evidence (strictly discard hallucinated citations not present in DB)
                 for ev_ref in getattr(it, "evidence", []):
-                    sr_id_str = str(ev_ref.source_record_id).strip()
-                    sr_id = uuid.UUID(sr_id_str) if sr_id_str in source_records_map else None
+                    sr_id_str = str(getattr(ev_ref, "source_record_id", "")).strip()
+                    if not sr_id_str or sr_id_str not in source_records_map:
+                        continue
+                    try:
+                        sr_id = uuid.UUID(sr_id_str)
+                    except (ValueError, TypeError):
+                        continue
 
                     claim_ev = ClaimEvidence(
                         id=uuid.uuid4(),

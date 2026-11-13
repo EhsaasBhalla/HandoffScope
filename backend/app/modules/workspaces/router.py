@@ -5,53 +5,46 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.modules.workspaces.models import User, Workspace, WorkspaceMembership
+from app.modules.workspaces.schemas import (
+    AddWorkspaceMemberRequest,
+    WorkspaceDetailResponse,
+    WorkspaceMemberResponse,
+    WorkspaceResponse,
+)
+from app.modules.workspaces.service import (
+    add_workspace_member as service_add_workspace_member,
+    get_user_workspaces,
+    get_workspace_membership,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
-
-class WorkspaceResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    description: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class WorkspaceDetailResponse(WorkspaceResponse):
-    member_count: int = 0
-    project_count: int = 0
+# Re-export for backward compatibility
+__all__ = [
+    "WorkspaceResponse",
+    "WorkspaceDetailResponse",
+    "WorkspaceMemberResponse",
+    "AddWorkspaceMemberRequest",
+    "router",
+]
 
 
 @router.get("", response_model=list[WorkspaceResponse])
 def list_workspaces(user=Depends(get_current_active_user), db: Session = Depends(get_db)):
     """List workspaces the current user belongs to."""
-    memberships = (
-        db.query(WorkspaceMembership)
-        .filter(WorkspaceMembership.user_id == user.id)
-        .all()
-    )
-    ws_ids = [m.workspace_id for m in memberships]
-    workspaces = db.query(Workspace).filter(Workspace.id.in_(ws_ids)).all()
+    workspaces = get_user_workspaces(db, user.id)
     return [WorkspaceResponse.model_validate(ws) for ws in workspaces]
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceDetailResponse)
 def get_workspace(workspace_id: uuid.UUID, user=Depends(get_current_active_user), db: Session = Depends(get_db)):
     """Get workspace detail — only if user is a member."""
-    membership = (
-        db.query(WorkspaceMembership)
-        .filter(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == user.id,
-        )
-        .first()
-    )
+    membership = get_workspace_membership(db, workspace_id, user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
 
@@ -73,22 +66,6 @@ def get_workspace(workspace_id: uuid.UUID, user=Depends(get_current_active_user)
     )
 
 
-class WorkspaceMemberResponse(BaseModel):
-    id: uuid.UUID
-    user_id: uuid.UUID
-    workspace_id: uuid.UUID
-    role: str
-    user_email: str | None = None
-    user_display_name: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class AddWorkspaceMemberRequest(BaseModel):
-    email: str
-    role: str = "MEMBER"
-
-
 @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberResponse])
 def list_workspace_members(
     workspace_id: uuid.UUID,
@@ -96,14 +73,7 @@ def list_workspace_members(
     db: Session = Depends(get_db),
 ):
     """List all members of a workspace (workspace membership required)."""
-    requester_membership = (
-        db.query(WorkspaceMembership)
-        .filter(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == user.id,
-        )
-        .first()
-    )
+    requester_membership = get_workspace_membership(db, workspace_id, user.id)
     if not requester_membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
 
@@ -113,7 +83,7 @@ def list_workspace_members(
         .all()
     )
     user_ids = [m.user_id for m in memberships]
-    users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+    users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
 
     results = []
     for m in memberships:
@@ -139,14 +109,7 @@ def add_workspace_member(
     """Add a member to a workspace by email."""
     from app.db.enums import WorkspaceRole
 
-    requester_membership = (
-        db.query(WorkspaceMembership)
-        .filter(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == user.id,
-        )
-        .first()
-    )
+    requester_membership = get_workspace_membership(db, workspace_id, user.id)
     if not requester_membership or requester_membership.role not in (
         WorkspaceRole.OWNER,
         WorkspaceRole.ADMIN,
@@ -156,41 +119,10 @@ def add_workspace_member(
             detail="Only Workspace Owners or Admins can add workspace members",
         )
 
-    target_user = db.query(User).filter(User.email == body.email.strip()).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User with this email not found")
-
-    existing = (
-        db.query(WorkspaceMembership)
-        .filter(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == target_user.id,
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="User already in workspace")
-
-    try:
-        ws_role = WorkspaceRole(body.role.upper())
-    except ValueError:
-        ws_role = WorkspaceRole.MEMBER
-
-    membership = WorkspaceMembership(
+    return service_add_workspace_member(
+        db,
         workspace_id=workspace_id,
-        user_id=target_user.id,
-        role=ws_role,
+        email=body.email,
+        role_str=body.role,
+        actor_id=user.id,
     )
-    db.add(membership)
-    db.commit()
-    db.refresh(membership)
-
-    return WorkspaceMemberResponse(
-        id=membership.id,
-        user_id=target_user.id,
-        workspace_id=workspace_id,
-        role=membership.role.value,
-        user_email=target_user.email,
-        user_display_name=target_user.display_name,
-    )
-

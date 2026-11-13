@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 import uuid
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.db.enums import Sensitivity
 from app.integrations.llm.embeddings import embed_query_safe
 from app.modules.rag.models import KnowledgeChunk
+
+logger = logging.getLogger("handoffscope.rag.retrieval")
 
 _TOKEN_RE = re.compile(r"[a-z0-9_./#-]{2,}")
 
@@ -39,6 +42,7 @@ def retrieve_permitted_chunks(
     pinned_version_id: uuid.UUID | None,
     allow_restricted: bool,
     query_text: str,
+    workspace_id: uuid.UUID | None = None,
     top_k: int = 8,
 ) -> tuple[list[KnowledgeChunk], bool, str]:
     """Retrieve relevant chunks enforcing SQL sensitivity filters BEFORE vector/lexical scoring.
@@ -49,6 +53,8 @@ def retrieve_permitted_chunks(
         KnowledgeChunk.case_id == case_id,
         KnowledgeChunk.context_mode == context_mode,
     ]
+    if workspace_id is not None:
+        base_filter.append(KnowledgeChunk.workspace_id == workspace_id)
     if pinned_version_id is not None:
         base_filter.append(KnowledgeChunk.version_id == pinned_version_id)
     else:
@@ -80,10 +86,17 @@ def retrieve_permitted_chunks(
     if not q_tokens:
         return candidates[:top_k], restricted_excluded, "lexical_only"
 
-    # Attempt query embedding only AFTER RBAC + SQL clearance filtering
-    q_embed = embed_query_safe(query_text)
-    has_live_q_vec = bool(q_embed.vectors and q_embed.vectors[0])
-    q_vec = q_embed.vectors[0] if has_live_q_vec else None
+    # Attempt query embedding with resilient lexical fallback
+    q_vec: list[float] | None = None
+    q_model_id: str | None = None
+    try:
+        q_embed = embed_query_safe(query_text)
+        if q_embed and q_embed.vectors and q_embed.vectors[0]:
+            q_vec = q_embed.vectors[0]
+            q_model_id = q_embed.model_id
+    except Exception as exc:
+        logger.warning("Query embedding generation failed, falling back to lexical search: %s", exc)
+        q_vec = None
 
     any_matching_chunk_vec = False
     scored: list[tuple[float, KnowledgeChunk]] = []
@@ -111,7 +124,8 @@ def retrieve_permitted_chunks(
         if (
             q_vec is not None
             and isinstance(ch.embedding_json, list)
-            and ch.embedding_model == q_embed.model_id
+            and q_model_id is not None
+            and ch.embedding_model == q_model_id
             and ch.embedding_dimension == len(q_vec)
         ):
             vec_score = _cosine_similarity(q_vec, ch.embedding_json)

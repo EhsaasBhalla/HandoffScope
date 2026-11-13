@@ -60,10 +60,13 @@ def download_certificate_pdf(
             version_number=version_number,
         )
     except ForbiddenError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ExportStateError, SnapshotIntegrityError) as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return Response(
@@ -94,10 +97,13 @@ def download_compliance_bundle_zip(
             version_number=version_number,
         )
     except ForbiddenError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ExportStateError, SnapshotIntegrityError) as exc:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return Response(
@@ -116,10 +122,13 @@ async def verify_compliance_bundle_endpoint(
     user: User = Depends(get_current_active_user),
 ):
     """Verify SHA-256 artifact hashes, Ed25519 signature, and trusted signer identity of an uploaded bundle."""
-    raw_bytes = await file.read(MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1)
-    if len(raw_bytes) > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Uploaded compliance archive exceeds 25 MB safety limit",
-        )
-    return verify_compliance_bundle_bytes(raw_bytes)
+    try:
+        raw_bytes = await file.read(MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1)
+        if len(raw_bytes) > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Uploaded compliance archive exceeds 25 MB safety limit",
+            )
+        return verify_compliance_bundle_bytes(raw_bytes)
+    finally:
+        await file.close()

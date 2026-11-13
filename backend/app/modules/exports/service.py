@@ -423,21 +423,25 @@ def generate_certificate_pdf(
     pdf_bytes = render_handover_certificate_pdf(projection=projection, signer_info=signer_info)
     filename = f"handoff-case-{case.case_number}-v{version.version_number}-certificate.pdf"
 
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="export.certificate_pdf_generated",
-        entity_type="handover_case",
-        entity_id=case.id,
-        details={
-            "handover_version_id": str(version.id),
-            "version_number": version.version_number,
-            "export_scope": projection["export_scope"],
-            "redacted_claims_count": projection["redacted_claims_count"],
-        },
-        summary=f"Exported Handover Certificate PDF for v{version.version_number} ({projection['export_scope']})",
-    )
-    db.commit()
+    try:
+        create_audit_event(
+            db,
+            actor_id=user.id,
+            action="export.certificate_pdf_generated",
+            entity_type="handover_case",
+            entity_id=case.id,
+            details={
+                "handover_version_id": str(version.id),
+                "version_number": version.version_number,
+                "export_scope": projection["export_scope"],
+                "redacted_claims_count": projection["redacted_claims_count"],
+            },
+            summary=f"Exported Handover Certificate PDF for v{version.version_number} ({projection['export_scope']})",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return pdf_bytes, filename, version
 
 
@@ -590,21 +594,25 @@ def generate_compliance_bundle_zip(
     zip_bytes = zip_buf.getvalue()
     zip_filename = f"handoff-case-{case.case_number}-v{version.version_number}-compliance-bundle.zip"
 
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="export.compliance_bundle_generated",
-        entity_type="handover_case",
-        entity_id=case.id,
-        details={
-            "handover_version_id": str(version.id),
-            "version_number": version.version_number,
-            "export_scope": projection["export_scope"],
-            "redacted_claims_count": projection["redacted_claims_count"],
-            "manifest_sha256": sig_envelope["manifest_sha256"],
-            "signing_key_id": material.key_id,
-        },
-        summary=f"Exported signed compliance archive for v{version.version_number} ({projection['export_scope']})",
-    )
-    db.commit()
+    try:
+        create_audit_event(
+            db,
+            actor_id=user.id,
+            action="export.compliance_bundle_generated",
+            entity_type="handover_case",
+            entity_id=case.id,
+            details={
+                "handover_version_id": str(version.id),
+                "version_number": version.version_number,
+                "export_scope": projection["export_scope"],
+                "redacted_claims_count": projection["redacted_claims_count"],
+                "manifest_sha256": sig_envelope["manifest_sha256"],
+                "signing_key_id": material.key_id,
+            },
+            summary=f"Exported signed compliance archive for v{version.version_number} ({projection['export_scope']})",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return zip_bytes, zip_filename, version

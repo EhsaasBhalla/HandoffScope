@@ -248,10 +248,20 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 def verify_bundle(zip_path: str, expected_fingerprint: str | None = None) -> int:
     with zipfile.ZipFile(zip_path, "r") as zf:
-        manifest_bytes = zf.read("manifest.json")
-        manifest = json.loads(manifest_bytes.decode("utf-8"))
-        sig_env = json.loads(zf.read("certificate.sig").decode("utf-8"))
-        pub_pem = zf.read("public_key.pem")
+        namelist = set(zf.namelist())
+        for req in ("manifest.json", "certificate.sig", "public_key.pem"):
+            if req not in namelist:
+                print(f"MALFORMED: Missing required file in archive: {req}")
+                return 1
+
+        try:
+            manifest_bytes = zf.read("manifest.json")
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
+            sig_env = json.loads(zf.read("certificate.sig").decode("utf-8"))
+            pub_pem = zf.read("public_key.pem")
+        except Exception as exc:
+            print(f"MALFORMED: Failed to read control files: {exc}")
+            return 1
 
         pub = serialization.load_pem_public_key(pub_pem)
         if not isinstance(pub, Ed25519PublicKey):

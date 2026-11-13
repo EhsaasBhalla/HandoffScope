@@ -18,9 +18,12 @@ class LocalStorageBackend(StorageBackend):
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _full_path(self, path: str) -> Path:
-        full = (self.base_dir / path).resolve()
+        clean = path.replace("\\", "/").lstrip("/")
+        full = (self.base_dir / clean).resolve()
         # Prevent path traversal
-        if not str(full).startswith(str(self.base_dir)):
+        try:
+            full.relative_to(self.base_dir)
+        except ValueError:
             raise ValueError("Path traversal detected")
         return full
 

@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.modules.auth.router import router as auth_router
+from app.modules.users.router import router as users_router
 from app.modules.workspaces.router import router as workspaces_router
 from app.modules.projects.router import router as projects_router
 from app.modules.audit.router import router as audit_router
@@ -29,6 +30,7 @@ router = APIRouter()
 
 # ── Phase 2: Auth & Users ─────────────────────────────────────
 router.include_router(auth_router)
+router.include_router(users_router)
 router.include_router(workspaces_router)
 router.include_router(projects_router)
 
@@ -64,11 +66,11 @@ router.include_router(recipients_router)
 # ── Phase 10: Overview & Hardening ────────────────────────────
 router.include_router(dashboard_router)
 
-# ── Round 3: Compliance Exports ───────────────────────────────
+# ── Compliance Exports ─────────────────────────────────────────
 router.include_router(exports_router)
 
-# ── Round 3: Conversational RAG Assistant ─────────────────────
+# ── Conversational RAG Assistant ───────────────────────────────
 router.include_router(rag_router)
 
-# ── Round 3: Real-Time Collaboration SSE ──────────────────────
+# ── Real-Time Collaboration SSE ────────────────────────────────
 router.include_router(events_router)

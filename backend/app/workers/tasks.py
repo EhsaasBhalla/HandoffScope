@@ -202,7 +202,14 @@ def parse_document_task(job_id: str) -> None:
         logger.exception("Unexpected error in parse_document_task: %s", exc)
         try:
             db.rollback()
-            fail_job(db, uuid.UUID(job_id), error_message=str(exc))
+            try:
+                fail_job(db, uuid.UUID(job_id), error_message=str(exc))
+                if 'document_id' in locals() and document_id:
+                    doc_obj = db.query(Document).filter(Document.id == uuid.UUID(str(document_id))).first()
+                    if doc_obj and doc_obj.processing_status != ProcessingStatus.COMPLETED:
+                        doc_obj.processing_status = ProcessingStatus.FAILED
+            except Exception:
+                pass
             db.commit()
         except Exception:
             pass

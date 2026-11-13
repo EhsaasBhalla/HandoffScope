@@ -8,8 +8,10 @@ from typing import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import require_project_capability
 from app.db.enums import IdentityConfidence
 from app.modules.audit.service import create_audit_event
 from app.modules.identity.models import IdentityMapping
@@ -156,7 +158,11 @@ def auto_suggest_mappings(db: Session, project_id: uuid.UUID) -> list[IdentityMa
             db.add(new_mapping)
             existing_mappings[ext_username] = new_mapping
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     # Automatically propagate verified mappings to source records
     propagate_verified_mappings(db, project_id)
@@ -180,16 +186,20 @@ def propagate_verified_mappings(db: Session, project_id: uuid.UUID) -> None:
         .all()
     )
 
-    for vm in verified_mappings:
-        db.query(SourceRecord).filter(
-            SourceRecord.connected_source_id.in_(source_ids),
-            SourceRecord.author_external_id == vm.external_username,
-        ).update(
-            {SourceRecord.author_mapped_user_id: vm.mapped_user_id},
-            synchronize_session=False,
-        )
+    try:
+        for vm in verified_mappings:
+            db.query(SourceRecord).filter(
+                SourceRecord.connected_source_id.in_(source_ids),
+                SourceRecord.author_external_id == vm.external_username,
+            ).update(
+                {SourceRecord.author_mapped_user_id: vm.mapped_user_id},
+                synchronize_session=False,
+            )
 
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def list_mappings(
@@ -300,8 +310,18 @@ def create_mapping(
         )
         db.add(mapping)
 
-    db.commit()
-    db.refresh(mapping)
+    try:
+        db.commit()
+        db.refresh(mapping)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Identity mapping for {data.external_provider}:{data.external_username} already exists in this project",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
     if mapping.confidence == IdentityConfidence.VERIFIED and mapping.mapped_user_id:
         propagate_verified_mappings(db, project_id)
@@ -321,6 +341,11 @@ def update_mapping(
     mapping = db.query(IdentityMapping).filter(IdentityMapping.id == mapping_id).first()
     if not mapping:
         raise HTTPException(status_code=404, detail="Identity mapping not found")
+
+    actor = db.query(User).filter(User.id == actor_id).first()
+    if not actor:
+        raise HTTPException(status_code=401, detail="User not found")
+    require_project_capability(db, actor, mapping.project_id, "identity.manage")
 
     source_ids = _get_project_source_ids(db, mapping.project_id)
 
@@ -401,8 +426,18 @@ def update_mapping(
             summary=f"Remapped {mapping.external_username} to user {update_data.mapped_user_id}",
         )
 
-    db.commit()
-    db.refresh(mapping)
+    try:
+        db.commit()
+        db.refresh(mapping)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conflict updating identity mapping",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
     items = list_mappings(db, mapping.project_id)
     return next(i for i in items if i.id == mapping.id)

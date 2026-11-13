@@ -36,7 +36,7 @@ def ensure_additive_schema(bind_engine: Engine) -> None:
     json_sql = "JSONB" if is_pg else "JSON"
     uuid_sql = "UUID" if is_pg else "CHAR(32)"
 
-    # Safely extend PostgreSQL enum types when existing DB predates Round 3 enum values
+    # Safely extend PostgreSQL enum types when existing DB predates newer enum values
     if is_pg:
         for enum_name, enum_val in (
             ("source_type_enum", "GITLAB_REPO"),

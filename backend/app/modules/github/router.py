@@ -8,21 +8,23 @@ import json
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from jose import JWTError, jwt
-from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.credentials import decrypt_secret, encrypt_secret
 from app.core.dependencies import get_current_active_user, get_db, require_project_capability
-from app.db.enums import JobStatus, JobType, SourceType
+from app.db.enums import JobType, SourceType
 from app.modules.audit.service import create_audit_event
+from app.modules.github.schemas import GitHubInstallUrlResponse, GitHubStatusResponse
+from app.modules.github.service import sign_oauth_state, verify_oauth_state
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
+from app.modules.projects.models import Project
 from app.modules.sources.models import ConnectedSource, GitHubInstallation
 from app.modules.workspaces.models import WorkspaceMembership
 
@@ -30,50 +32,39 @@ logger = logging.getLogger("handoffscope.github")
 
 router = APIRouter(prefix="/github", tags=["GitHub"])
 
-
-class GitHubStatusResponse(BaseModel):
-    connected: bool
-    installation_id: int | None = None
-    account_login: str | None = None
-
-
-class GitHubInstallUrlResponse(BaseModel):
-    url: str
-
-
-def _sign_oauth_state(user_id: uuid.UUID) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "typ": "github_oauth_state",
-        "sub": str(user_id),
-        "nonce": secrets.token_urlsafe(12),
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=15)).timestamp()),
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-
-
-def _verify_oauth_state(state_token: str | None) -> uuid.UUID:
-    if not state_token:
-        raise HTTPException(status_code=400, detail="Missing OAuth state token")
-    try:
-        payload = jwt.decode(state_token, settings.SECRET_KEY, algorithms=["HS256"])
-        if payload.get("typ") != "github_oauth_state":
-            raise HTTPException(status_code=400, detail="Invalid OAuth state type")
-        return uuid.UUID(str(payload["sub"]))
-    except (JWTError, KeyError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state parameter") from exc
+# Re-export for backward compatibility
+__all__ = [
+    "GitHubStatusResponse",
+    "GitHubInstallUrlResponse",
+    "router",
+]
 
 
 @router.get("/install-url", response_model=GitHubInstallUrlResponse)
-def get_install_url(user=Depends(get_current_active_user)):
+def get_install_url(
+    workspace_id: uuid.UUID | None = Query(default=None),
+    user=Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
     """Return the GitHub App installation URL with cryptographically signed state."""
     if not settings.GITHUB_APP_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="GitHub App not configured. Public repositories sync directly without an App.",
         )
-    signed_state = _sign_oauth_state(user.id)
+    if workspace_id:
+        ws_member = (
+            db.query(WorkspaceMembership)
+            .filter(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.user_id == user.id,
+            )
+            .first()
+        )
+        if not ws_member:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
+
+    signed_state = sign_oauth_state(user.id, workspace_id=workspace_id)
     url = f"https://github.com/apps/handoffscope/installations/new?state={signed_state}"
     return GitHubInstallUrlResponse(url=url)
 
@@ -92,7 +83,7 @@ async def github_callback(
     if not settings.GITHUB_APP_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub App not configured")
 
-    user_id = _verify_oauth_state(state)
+    user_id, target_ws_id = verify_oauth_state(state)
 
     token_data = await exchange_code_for_token(code)
     if "error" in token_data:
@@ -100,42 +91,70 @@ async def github_callback(
 
     install_token_data = await get_installation_token(installation_id)
 
-    ws_membership = db.query(WorkspaceMembership).filter(
-        WorkspaceMembership.user_id == user_id
-    ).first()
-    if not ws_membership:
-        raise HTTPException(status_code=400, detail="Could not determine workspace for user")
-    workspace_id = ws_membership.workspace_id
+    if target_ws_id:
+        ws_membership = (
+            db.query(WorkspaceMembership)
+            .filter(
+                WorkspaceMembership.workspace_id == target_ws_id,
+                WorkspaceMembership.user_id == user_id,
+            )
+            .first()
+        )
+        if not ws_membership:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not a member of the target workspace")
+        workspace_id = target_ws_id
+    else:
+        ws_membership = (
+            db.query(WorkspaceMembership)
+            .filter(WorkspaceMembership.user_id == user_id)
+            .first()
+        )
+        if not ws_membership:
+            raise HTTPException(status_code=400, detail="Could not determine workspace for user")
+        workspace_id = ws_membership.workspace_id
 
     encrypted_install_token = encrypt_secret(install_token_data.get("token"))
-    existing = db.query(GitHubInstallation).filter(
-        GitHubInstallation.installation_id == installation_id
-    ).first()
-
-    if existing:
-        existing.access_token = encrypted_install_token
-        existing.token_expires_at = install_token_data.get("expires_at")
-    else:
-        installation = GitHubInstallation(
-            workspace_id=workspace_id,
-            installation_id=installation_id,
-            account_login=token_data.get("login", "unknown"),
-            account_type="Organization",
-            access_token=encrypted_install_token,
-            installed_by_id=user_id,
-        )
-        db.add(installation)
-
-    create_audit_event(
-        db,
-        actor_id=user_id,
-        action="github.app_installed",
-        entity_type="workspace",
-        entity_id=workspace_id,
-        details={"installation_id": installation_id, "setup_action": setup_action},
-        summary=f"Connected GitHub App installation #{installation_id}",
+    existing = (
+        db.query(GitHubInstallation)
+        .filter(GitHubInstallation.installation_id == installation_id)
+        .first()
     )
-    db.commit()
+
+    try:
+        if existing:
+            existing.access_token = encrypted_install_token
+            existing.token_expires_at = install_token_data.get("expires_at")
+        else:
+            installation = GitHubInstallation(
+                workspace_id=workspace_id,
+                installation_id=installation_id,
+                account_login=token_data.get("login", "unknown"),
+                account_type="Organization",
+                access_token=encrypted_install_token,
+                installed_by_id=user_id,
+            )
+            db.add(installation)
+
+        create_audit_event(
+            db,
+            actor_id=user_id,
+            action="github.app_installed",
+            entity_type="workspace",
+            entity_id=workspace_id,
+            details={"installation_id": installation_id, "setup_action": setup_action},
+            summary=f"Connected GitHub App installation #{installation_id}",
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="GitHub App installation already registered",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     return {"message": "GitHub App installed successfully", "installation_id": installation_id}
 
 
@@ -145,10 +164,23 @@ def get_github_status(
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Check GitHub App connection status for a workspace."""
-    installation = db.query(GitHubInstallation).filter(
-        GitHubInstallation.workspace_id == workspace_id
-    ).first()
+    """Check GitHub App connection status for a workspace (workspace membership required)."""
+    ws_member = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if not ws_member:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
+
+    installation = (
+        db.query(GitHubInstallation)
+        .filter(GitHubInstallation.workspace_id == workspace_id)
+        .first()
+    )
 
     if not installation:
         return GitHubStatusResponse(connected=False)
@@ -190,7 +222,7 @@ async def github_webhook_receiver(
 
     try:
         payload = json.loads(raw_body.decode("utf-8"))
-    except ValueError as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail="Malformed webhook JSON payload") from exc
 
     repo_full_name = ((payload.get("repository") or {}).get("full_name") or "").strip()
@@ -212,25 +244,30 @@ async def github_webhook_receiver(
     enqueued_jobs: list[str] = []
     deduped = 0
 
-    for src in matching_sources:
-        idem_key = f"gh-webhook-{src.id}-{delivery_id}"
-        existing_job = db.query(Job).filter(Job.idempotency_key == idem_key).first()
-        if existing_job:
-            deduped += 1
-            continue
-        job = enqueue_job(
-            db,
-            job_type=JobType.SOURCE_IMPORT,
-            entity_type="connected_source",
-            entity_id=src.id,
-            params={"source_id": str(src.id), "webhook_event": event_name, "delivery_id": delivery_id},
-            idempotency_key=idem_key,
-            queue_name="handoffscope-import",
-            task_func="app.workers.import_task.run_import",
-        )
-        enqueued_jobs.append(str(job.id))
+    try:
+        for src in matching_sources:
+            idem_key = f"gh-webhook-{src.id}-{delivery_id}"
+            existing_job = db.query(Job).filter(Job.idempotency_key == idem_key).first()
+            if existing_job:
+                deduped += 1
+                continue
+            job = enqueue_job(
+                db,
+                job_type=JobType.SOURCE_IMPORT,
+                entity_type="connected_source",
+                entity_id=src.id,
+                params={"source_id": str(src.id), "webhook_event": event_name, "delivery_id": delivery_id},
+                idempotency_key=idem_key,
+                queue_name="handoffscope-import",
+                task_func="app.workers.import_task.run_import",
+            )
+            enqueued_jobs.append(str(job.id))
 
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     return {
         "status": "accepted",
         "event": event_name,
@@ -265,6 +302,17 @@ def conditional_etag_poll(
         "User-Agent": "HandoffScope/1.0",
     }
     tok = decrypt_secret(cfg.get("access_token")) or settings.GITHUB_TOKEN
+    if not tok:
+        proj = db.query(Project).filter(Project.id == src.project_id).first()
+        if proj:
+            inst = (
+                db.query(GitHubInstallation)
+                .filter(GitHubInstallation.workspace_id == proj.workspace_id)
+                .first()
+            )
+            if inst and inst.access_token:
+                tok = decrypt_secret(inst.access_token)
+
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
     if cfg.get("last_etag"):
@@ -279,7 +327,11 @@ def conditional_etag_poll(
     if resp.status_code == 304:
         cfg["last_etag_checked_at"] = datetime.now(timezone.utc).isoformat()
         src.config = cfg
-        db.commit()
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         return {"changed": False, "status_code": 304, "message": "Repository unchanged (304 Not Modified)"}
 
     if resp.status_code >= 400:
@@ -293,16 +345,21 @@ def conditional_etag_poll(
 
     # Atomic 60-second lease key prevents duplicate background jobs
     lease_bucket = int(datetime.now(timezone.utc).timestamp() // 60)
-    job = enqueue_job(
-        db,
-        job_type=JobType.SOURCE_IMPORT,
-        entity_type="connected_source",
-        entity_id=src.id,
-        created_by_id=user.id,
-        params={"source_id": str(src.id), "trigger": "etag_poll"},
-        idempotency_key=f"etag-poll-{src.id}-{lease_bucket}",
-        queue_name="handoffscope-import",
-        task_func="app.workers.import_task.run_import",
-    )
-    db.commit()
+    try:
+        job = enqueue_job(
+            db,
+            job_type=JobType.SOURCE_IMPORT,
+            entity_type="connected_source",
+            entity_id=src.id,
+            created_by_id=user.id,
+            params={"source_id": str(src.id), "trigger": "etag_poll"},
+            idempotency_key=f"etag-poll-{src.id}-{lease_bucket}",
+            queue_name="handoffscope-import",
+            task_func="app.workers.import_task.run_import",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     return {"changed": True, "status_code": 200, "job_id": str(job.id)}

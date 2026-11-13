@@ -200,19 +200,23 @@ def create_question(
         created_by_id=user_id,
     )
     db.add(question)
-    db.flush()
+    try:
+        db.flush()
 
-    create_audit_event(
-        db,
-        actor_id=user_id,
-        action="question.created",
-        entity_type="question",
-        entity_id=question.id,
-        details={"case_id": str(data.case_id), "question": data.question_text[:100]},
-        summary=f"Created question: {data.question_text[:80]}",
-    )
-    db.commit()
-    db.refresh(question)
+        create_audit_event(
+            db,
+            actor_id=user_id,
+            action="question.created",
+            entity_type="question",
+            entity_id=question.id,
+            details={"case_id": str(data.case_id), "question": data.question_text[:100]},
+            summary=f"Created question: {data.question_text[:80]}",
+        )
+        db.commit()
+        db.refresh(question)
+    except Exception:
+        db.rollback()
+        raise
     publish_case_event(
         case_id=question.case_id,
         event_type="question.answered",
@@ -222,10 +226,10 @@ def create_question(
 
 
 VALID_QUESTION_TRANSITIONS: dict[QuestionStatus, set[QuestionStatus]] = {
-    QuestionStatus.DRAFT: {QuestionStatus.OPEN, QuestionStatus.CANCELLED},
+    QuestionStatus.DRAFT: {QuestionStatus.OPEN, QuestionStatus.CANCELLED, QuestionStatus.DISMISSED},
     QuestionStatus.OPEN: {QuestionStatus.ANSWERED, QuestionStatus.DISMISSED, QuestionStatus.CANCELLED},
-    QuestionStatus.ANSWERED: {QuestionStatus.PENDING_REVIEW, QuestionStatus.OPEN, QuestionStatus.RESOLVED},
-    QuestionStatus.PENDING_REVIEW: {QuestionStatus.RESOLVED, QuestionStatus.OPEN},
+    QuestionStatus.ANSWERED: {QuestionStatus.PENDING_REVIEW, QuestionStatus.OPEN, QuestionStatus.RESOLVED, QuestionStatus.DISMISSED},
+    QuestionStatus.PENDING_REVIEW: {QuestionStatus.RESOLVED, QuestionStatus.OPEN, QuestionStatus.DISMISSED},
     QuestionStatus.RESOLVED: {QuestionStatus.OPEN},
     QuestionStatus.DISMISSED: {QuestionStatus.OPEN},
     QuestionStatus.CANCELLED: {QuestionStatus.OPEN, QuestionStatus.DRAFT},
@@ -240,8 +244,14 @@ def update_question(
     data: QuestionUpdate,
 ) -> QuestionOut:
     """Update question fields or transition question status."""
+    q_query = db.query(Question).filter(Question.id == question_id)
+    try:
+        if db.bind and db.bind.dialect.name != "sqlite":
+            q_query = q_query.with_for_update()
+    except Exception:
+        pass
     question = (
-        db.query(Question)
+        q_query
         .options(
             joinedload(Question.case),
             joinedload(Question.transfer_pack),
@@ -251,7 +261,6 @@ def update_question(
             joinedload(Question.responses).joinedload(QuestionResponse.respondent),
             joinedload(Question.responses).joinedload(QuestionResponse.reviewer),
         )
-        .filter(Question.id == question_id)
         .first()
     )
     if not question:
@@ -293,33 +302,43 @@ def update_question(
             pass
 
     if data.status is not None:
-        try:
-            target_status = QuestionStatus(data.status.upper())
-            if target_status != question.status:
-                allowed = VALID_QUESTION_TRANSITIONS.get(question.status, set())
-                if target_status not in allowed:
-                    raise ValueError(f"Invalid transition from {question.status.value} to {target_status.value}")
-                old_status = question.status
-                question.status = target_status
-                changed_fields.append(f"status({old_status.value}->{target_status.value})")
-        except ValueError as exc:
-            raise ValueError(str(exc))
+        status_raw = data.status.upper().strip()
+        if status_raw == "REOPENED":
+            target_status = QuestionStatus.OPEN
+        else:
+            try:
+                target_status = QuestionStatus(status_raw)
+            except ValueError:
+                raise ValueError(f"Invalid question status: '{data.status}'")
 
-    db.flush()
+        if target_status != question.status:
+            allowed = VALID_QUESTION_TRANSITIONS.get(question.status, set())
+            if target_status not in allowed:
+                raise ValueError(f"Invalid transition from {question.status.value} to {target_status.value}")
+            old_status = question.status
+            question.status = target_status
+            changed_fields.append(f"status({old_status.value}->{target_status.value})")
 
-    if changed_fields:
-        create_audit_event(
-            db,
-            actor_id=user_id,
-            action="question.updated",
-            entity_type="question",
-            entity_id=question.id,
-            details={"changes": changed_fields},
-            summary=f"Updated question #{question.id}: {', '.join(changed_fields)}",
-        )
+    try:
+        db.flush()
 
-    db.commit()
-    db.refresh(question)
+        if changed_fields:
+            create_audit_event(
+                db,
+                actor_id=user_id,
+                action="question.updated",
+                entity_type="question",
+                entity_id=question.id,
+                details={"changes": changed_fields},
+                summary=f"Updated question #{question.id}: {', '.join(changed_fields)}",
+            )
+
+        db.commit()
+        db.refresh(question)
+    except Exception:
+        db.rollback()
+        raise
+
     publish_case_event(
         case_id=question.case_id,
         event_type="question.answered",
@@ -339,30 +358,46 @@ def add_response(
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise ValueError("Question not found")
+    if not response_text or not response_text.strip():
+        raise ValueError("Response text cannot be empty")
     if question.status in (QuestionStatus.DISMISSED, QuestionStatus.CANCELLED):
         raise ValueError(f"Cannot answer a question in status '{question.status.value}'")
+    if question.status == QuestionStatus.RESOLVED:
+        raise ValueError("Cannot answer an already resolved question; reopen the question first")
 
     response = QuestionResponse(
         question_id=question.id,
         respondent_id=user_id,
-        response_text=response_text,
+        response_text=response_text.strip(),
         review_state=QuestionResponseReviewState.PENDING_REVIEW,
     )
     db.add(response)
     question.status = QuestionStatus.ANSWERED
-    db.flush()
 
-    create_audit_event(
-        db,
-        actor_id=user_id,
-        action="question.answered",
-        entity_type="question",
-        entity_id=question.id,
-        details={"question_id": str(question.id)},
-        summary=f"Answered question #{question.id}",
+    try:
+        db.flush()
+
+        create_audit_event(
+            db,
+            actor_id=user_id,
+            action="question.answered",
+            entity_type="question",
+            entity_id=question.id,
+            details={"question_id": str(question.id)},
+            summary=f"Answered question #{question.id}",
+        )
+        db.commit()
+        db.refresh(question)
+    except Exception:
+        db.rollback()
+        raise
+
+    publish_case_event(
+        case_id=question.case_id,
+        event_type="question.answered",
+        entity_id=str(question.id),
     )
-    db.commit()
-    db.refresh(question)
+    return _to_question_out(question)
     publish_case_event(
         case_id=question.case_id,
         event_type="question.answered",
@@ -689,8 +724,14 @@ def review_response(
     amended_text: str | None = None,
 ) -> QuestionOut:
     """Accept, reject, or amend a response to a question (atomically promoting/updating knowledge)."""
+    q_query = db.query(Question).filter(Question.id == question_id)
+    try:
+        if db.bind and db.bind.dialect.name != "sqlite":
+            q_query = q_query.with_for_update()
+    except Exception:
+        pass
     question = (
-        db.query(Question)
+        q_query
         .options(
             joinedload(Question.case),
             joinedload(Question.transfer_pack),
@@ -700,7 +741,6 @@ def review_response(
             joinedload(Question.responses).joinedload(QuestionResponse.respondent),
             joinedload(Question.responses).joinedload(QuestionResponse.reviewer),
         )
-        .filter(Question.id == question_id)
         .first()
     )
     if not question:
@@ -775,24 +815,29 @@ def review_response(
     else:
         raise ValueError(f"Unsupported question review action: '{action}'. Expected accept, reject, or amend.")
 
-    db.flush()
+    try:
+        db.flush()
 
-    create_audit_event(
-        db,
-        actor_id=user_id,
-        action=f"question.response_{act}",
-        entity_type="question",
-        entity_id=question.id,
-        details={
-            "action": act,
-            "notes": notes,
-            "response_id": str(target_response.id),
-            "promotion_result": promotion_result,
-        },
-        summary=f"{act.capitalize()}ed answer for question #{question.id}",
-    )
-    db.commit()
-    db.refresh(question)
+        create_audit_event(
+            db,
+            actor_id=user_id,
+            action=f"question.response_{act}",
+            entity_type="question",
+            entity_id=question.id,
+            details={
+                "action": act,
+                "notes": notes,
+                "response_id": str(target_response.id),
+                "promotion_result": promotion_result,
+            },
+            summary=f"{act.capitalize()}ed answer for question #{question.id}",
+        )
+        db.commit()
+        db.refresh(question)
+    except Exception:
+        db.rollback()
+        raise
+
     publish_case_event(
         case_id=question.case_id,
         event_type="question.reviewed",
@@ -912,12 +957,42 @@ def generate_ai_answer(
         )
 
         provider = get_llm_provider()
-        raw_qa_res, usage_meta = provider.answer_question(
-            QA_SYSTEM_PROMPT,
-            user_prompt,
-            QuestionAnswerResult,
-        )
-        qa_res = QuestionAnswerResult.model_validate(raw_qa_res)
+        try:
+            raw_qa_res, usage_meta = provider.answer_question(
+                QA_SYSTEM_PROMPT,
+                user_prompt,
+                QuestionAnswerResult,
+            )
+            qa_res = QuestionAnswerResult.model_validate(raw_qa_res)
+        except Exception as exc:
+            logger.warning("Live LLM answer drafting failed (%s: %s); falling back cleanly", type(exc).__name__, exc)
+            try:
+                from app.integrations.llm.mock_provider import MockLLMProvider
+                mock = MockLLMProvider()
+                raw_qa_res, usage_meta = mock.answer_question(
+                    QA_SYSTEM_PROMPT,
+                    user_prompt,
+                    QuestionAnswerResult,
+                )
+                usage_meta["fallback_used"] = True
+                usage_meta["fallback_reason"] = f"AI drafting provider error ({type(exc).__name__}): {str(exc)[:200]}"
+                qa_res = QuestionAnswerResult.model_validate(raw_qa_res)
+            except Exception as inner_exc:
+                logger.error("Mock fallback also failed: %s", inner_exc)
+                usage_meta = {
+                    "provider_mode": "error_fallback",
+                    "model_used": "none",
+                    "fallback_used": True,
+                    "fallback_reason": f"AI drafting failed ({type(exc).__name__}): {str(exc)[:200]}",
+                }
+                qa_res = QuestionAnswerResult(
+                    answer_text="AI draft could not be generated due to a temporary service timeout or format error.",
+                    answer_status="insufficient",
+                    limitations=f"AI generation encountered a temporary error ({type(exc).__name__}). Please provide a manual answer or retry.",
+                    evidence_references=[],
+                    conflicts=[],
+                    confidence_diagnostic="error",
+                )
 
         validated_refs: list[dict[str, Any]] = []
         rejected_ref_ids: list[str] = []
@@ -1033,8 +1108,12 @@ def generate_ai_answer(
             ),
         )
 
-        db.commit()
-        db.refresh(question)
+        try:
+            db.commit()
+            db.refresh(question)
+        except Exception:
+            db.rollback()
+            raise
         return _to_question_out(question)
     finally:
         with _ACTIVE_AI_GEN_LOCK:

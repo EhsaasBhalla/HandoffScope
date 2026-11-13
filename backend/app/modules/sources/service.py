@@ -134,23 +134,27 @@ def refresh_source(
 
     source.updated_at = now
 
-    # Record audit event
-    create_audit_event(
-        db,
-        actor_id=actor_id,
-        action="source.refreshed",
-        entity_type="connected_source",
-        entity_id=source.id,
-        details={
-            "source_id": str(source.id),
-            "records_checked": records_checked,
-            "records_changed": records_changed,
-            "claims_stale_count": claims_stale_count,
-            "cases_affected_count": len(cases_affected),
-        },
-        summary=f"Checked local freshness for source {source.name}: {claims_stale_count} claims marked stale across {len(cases_affected)} cases (local timestamps only)",
-    )
-    db.commit()
+    try:
+        # Record audit event
+        create_audit_event(
+            db,
+            actor_id=actor_id,
+            action="source.refreshed",
+            entity_type="connected_source",
+            entity_id=source.id,
+            details={
+                "source_id": str(source.id),
+                "records_checked": records_checked,
+                "records_changed": records_changed,
+                "claims_stale_count": claims_stale_count,
+                "cases_affected_count": len(cases_affected),
+            },
+            summary=f"Checked local freshness for source {source.name}: {claims_stale_count} claims marked stale across {len(cases_affected)} cases (local timestamps only)",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "source_id": str(source.id),
@@ -195,21 +199,25 @@ def refresh_case_sources(
 
     db.refresh(case)
 
-    create_audit_event(
-        db,
-        actor_id=actor_id,
-        action="case.sources_refreshed",
-        entity_type="handover_case",
-        entity_id=case.id,
-        details={
-            "case_id": str(case.id),
-            "sources_refreshed": len(sources),
-            "total_stale_claims": total_stale,
-            "new_sync_status": case.sync_status.value,
-        },
-        summary=f"Refreshed {len(sources)} sources for case {case.title} (sync status: {case.sync_status.value})",
-    )
-    db.commit()
+    try:
+        create_audit_event(
+            db,
+            actor_id=actor_id,
+            action="case.sources_refreshed",
+            entity_type="handover_case",
+            entity_id=case.id,
+            details={
+                "case_id": str(case.id),
+                "sources_refreshed": len(sources),
+                "total_stale_claims": total_stale,
+                "new_sync_status": case.sync_status.value,
+            },
+            summary=f"Refreshed {len(sources)} sources for case {case.title} (sync status: {case.sync_status.value})",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "case_id": str(case.id),

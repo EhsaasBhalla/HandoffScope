@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/SQLAlchemy-2.0-red?style=flat-square" alt="SQLAlchemy" />
   <img src="https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/Vite-6.0-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite" />
-  <img src="https://img.shields.io/badge/Tests-61%20Passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-68%20Passed-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/Status-Round%203%20Active-blue?style=flat-square" alt="Status" />
 </p>
 
@@ -169,7 +169,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ---
 
-## 🧪 Automated Test Suite (61 Tests Passing)
+## 🧪 Automated Test Suite (68 Tests Passing)
 
 The test suite covers unit and API integration tests:
 ```bash
@@ -190,6 +190,7 @@ python -m pytest tests/
 | `test_security.py` | Password hashing, JWT cookie security, CSRF protection |
 | `test_state_machine.py` | 16-transition lifecycle state machine & invariant checks |
 | `test_parsers.py` | Document ingestion (`.pdf`, `.docx`, `.md`) |
+| `test_audit_hardening_scope.py` | State invariants, clearance masking, ReDoS prevention & AI error resilience |
 | `test_r3_0_foundations.py` | Clearance policy, GitHub URL auto-linking & member RBAC hardening |
 | `test_r3_1_compliance_exports.py` | Signed compliance ZIP/PDF exports, Ed25519 verification & clearance filtering |
 | `test_r3_2_conversational_rag.py` | Snapshot-pinned conversational RAG assistant & restricted withholding |

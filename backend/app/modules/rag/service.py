@@ -19,6 +19,7 @@ from app.modules.audit.service import create_audit_event
 from app.modules.evidence.clearance import has_restricted_clearance
 from app.modules.sharing.redactor import redact_secrets_inline
 from app.modules.handover_cases.models import CaseParticipant, HandoverCase
+from app.modules.projects.models import Project
 from app.modules.rag.indexing import (
     CONTEXT_APPROVED,
     CONTEXT_DRAFT,
@@ -219,7 +220,11 @@ def reindex_case_rag(
             db, case_id=case_id, version_id=target_ver.id
         )
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return RagReindexResultOut(
         case_id=case_id,
         context_mode=context_mode,
@@ -337,6 +342,9 @@ def ask_handover_question(
     db.add(user_msg)
     db.flush()
 
+    proj_obj = db.query(Project).filter(Project.id == case.project_id).first()
+    ws_id = proj_obj.workspace_id if proj_obj else None
+
     chunks, restricted_excluded, retrieval_mode = retrieve_permitted_chunks(
         db,
         case_id=case_id,
@@ -344,6 +352,7 @@ def ask_handover_question(
         pinned_version_id=pinned_version_id,
         allow_restricted=allow_restricted,
         query_text=body.question.strip(),
+        workspace_id=ws_id,
         top_k=8,
     )
 
@@ -436,13 +445,17 @@ def ask_handover_question(
 
         # Ensure at least top retrieved chunk is cited if model answered positively but omitted IDs
         raw_status = (raw_res.answer_status or "insufficient").lower()
+        final_answer_text = raw_res.answer_text
         if raw_status == "conflicting":
             grounding_status = "CONFLICTING_EVIDENCE"
         elif raw_status == "answered" and valid_citations:
             grounding_status = "ANSWERED"
         elif raw_status == "answered" and not valid_citations:
-            # Never emit uncited factual claim without an approved citation
+            # Suppress hallucination: model produced an ungrounded answer with zero valid citations
             grounding_status = "INSUFFICIENT_EVIDENCE"
+            final_answer_text = (
+                "The available handover evidence does not contain verified citations to support an answer to this question."
+            )
         elif restricted_excluded:
             grounding_status = "RESTRICTED_EVIDENCE_EXCLUDED"
         else:
@@ -457,7 +470,7 @@ def ask_handover_question(
             id=uuid.uuid4(),
             thread_id=thread.id,
             role="assistant",
-            content_text=raw_res.answer_text,
+            content_text=final_answer_text,
             grounding_status=grounding_status,
             citations_json=valid_citations,
             limitations=limitations_text,
@@ -467,28 +480,32 @@ def ask_handover_question(
             latency_ms=max(1, int((time.time() - started) * 1000)),
         )
 
-    thread.updated_at = datetime.now(timezone.utc)
-    db.add(assistant_msg)
-    db.flush()
+    try:
+        thread.updated_at = datetime.now(timezone.utc)
+        db.add(assistant_msg)
+        db.flush()
 
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="rag.question_asked",
-        entity_type="handover_case",
-        entity_id=case.id,
-        details={
-            "thread_id": str(thread.id),
-            "context_mode": context_mode,
-            "pinned_version_id": str(pinned_version_id) if pinned_version_id else None,
-            "grounding_status": assistant_msg.grounding_status,
-            "retrieval_mode": retrieval_mode,
-            "citations_count": len(assistant_msg.citations_json or []),
-        },
-        summary=f"Asked handover assistant ({context_mode}): {assistant_msg.grounding_status}",
-    )
+        create_audit_event(
+            db,
+            actor_id=user.id,
+            action="rag.question_asked",
+            entity_type="handover_case",
+            entity_id=case.id,
+            details={
+                "thread_id": str(thread.id),
+                "context_mode": context_mode,
+                "pinned_version_id": str(pinned_version_id) if pinned_version_id else None,
+                "grounding_status": assistant_msg.grounding_status,
+                "retrieval_mode": retrieval_mode,
+                "citations_count": len(assistant_msg.citations_json or []),
+            },
+            summary=f"Asked handover assistant ({context_mode}): {assistant_msg.grounding_status}",
+        )
 
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(thread)
     db.refresh(user_msg)
     db.refresh(assistant_msg)

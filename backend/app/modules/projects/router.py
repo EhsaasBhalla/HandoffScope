@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -13,46 +12,32 @@ from app.core.dependencies import (
     get_db,
     require_project_capability,
 )
-from app.db.enums import ConnectionStatus, ProjectRole, SourceType, WorkspaceRole
+from app.db.enums import ProjectRole, SourceType, WorkspaceRole
 from app.modules.audit.service import create_audit_event
 from app.modules.projects.models import Project, ProjectMembership
+from app.modules.projects.schemas import (
+    AddProjectMemberRequest,
+    ProjectCreateRequest,
+    ProjectMemberResponse,
+    ProjectResponse,
+)
+from app.modules.projects.service import (
+    add_or_update_project_member as service_add_or_update_project_member,
+    create_project as service_create_project,
+)
 from app.modules.sources.models import ConnectedSource
-from app.modules.sources.url_parser import parse_github_repo_identifier
 from app.modules.workspaces.models import User, WorkspaceMembership
 
 router = APIRouter(tags=["Projects"])
 
-
-class ProjectResponse(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    name: str
-    slug: str
-    description: str | None = None
-    repo_url: str | None = None
-    connected_source_id: uuid.UUID | None = None
-    linked_source_status: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectCreateRequest(BaseModel):
-    name: str
-    slug: str
-    description: str | None = None
-    repo_url: str | None = None
-    auto_link_source: bool = True
-
-
-class ProjectMemberResponse(BaseModel):
-    id: uuid.UUID
-    user_id: uuid.UUID
-    project_id: uuid.UUID
-    role: str
-    user_email: str | None = None
-    user_display_name: str | None = None
-
-    model_config = {"from_attributes": True}
+# Re-export for backward compatibility
+__all__ = [
+    "ProjectResponse",
+    "ProjectCreateRequest",
+    "ProjectMemberResponse",
+    "AddProjectMemberRequest",
+    "router",
+]
 
 
 def _to_project_response(db: Session, project: Project, linked_source: ConnectedSource | None = None) -> ProjectResponse:
@@ -66,6 +51,13 @@ def _to_project_response(db: Session, project: Project, linked_source: Connected
             .order_by(ConnectedSource.created_at.asc())
             .first()
         )
+    status_val = None
+    if linked_source and linked_source.connection_status:
+        status_val = (
+            linked_source.connection_status.value
+            if hasattr(linked_source.connection_status, "value")
+            else str(linked_source.connection_status)
+        )
     return ProjectResponse(
         id=project.id,
         workspace_id=project.workspace_id,
@@ -74,7 +66,7 @@ def _to_project_response(db: Session, project: Project, linked_source: Connected
         description=project.description,
         repo_url=project.repo_url,
         connected_source_id=linked_source.id if linked_source else None,
-        linked_source_status=linked_source.connection_status.value if linked_source else None,
+        linked_source_status=status_val,
     )
 
 
@@ -124,92 +116,7 @@ def create_project(
             detail="Missing required capability 'project.create' in workspace",
         )
 
-    # Check slug uniqueness within workspace
-    existing = (
-        db.query(Project)
-        .filter(Project.workspace_id == workspace_id, Project.slug == body.slug)
-        .first()
-    )
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project slug already exists in this workspace")
-
-    parsed_repo = None
-    normalized_repo_url = body.repo_url.strip() if body.repo_url and body.repo_url.strip() else None
-    if normalized_repo_url:
-        try:
-            parsed_repo = parse_github_repo_identifier(normalized_repo_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        if parsed_repo:
-            normalized_repo_url = parsed_repo[2]
-
-    project = Project(
-        workspace_id=workspace_id,
-        name=body.name,
-        slug=body.slug,
-        description=body.description,
-        repo_url=normalized_repo_url,
-    )
-    db.add(project)
-    db.flush()
-
-    # Auto-add creator as LEAD
-    membership = ProjectMembership(
-        user_id=user.id,
-        project_id=project.id,
-        role=ProjectRole.LEAD,
-    )
-    db.add(membership)
-
-    linked_source = None
-    if parsed_repo and body.auto_link_source:
-        owner, repo, canonical_url = parsed_repo
-        ext_id = f"{owner}/{repo}"
-        linked_source = ConnectedSource(
-            project_id=project.id,
-            source_type=SourceType.GITHUB_REPO,
-            name=ext_id,
-            external_id=ext_id,
-            connection_status=ConnectionStatus.ACTIVE,
-            config={
-                "owner": owner,
-                "repo": repo,
-                "url": canonical_url,
-                "auth_mode": "public",
-            },
-            connected_by_id=user.id,
-        )
-        db.add(linked_source)
-        db.flush()
-        create_audit_event(
-            db,
-            actor_id=user.id,
-            action="source.connected",
-            entity_type="connected_source",
-            entity_id=linked_source.id,
-            details={"source_type": SourceType.GITHUB_REPO.value, "external_id": ext_id, "auto_linked": True},
-            summary=f"Auto-linked repository source {ext_id} during project creation",
-        )
-
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="project.created",
-        entity_type="project",
-        entity_id=project.id,
-        details={
-            "slug": project.slug,
-            "repo_url": project.repo_url,
-            "connected_source_id": str(linked_source.id) if linked_source else None,
-        },
-        summary=f"Created project {project.name}",
-    )
-
-    db.commit()
-    db.refresh(project)
-    if linked_source:
-        db.refresh(linked_source)
-
+    project, linked_source = service_create_project(db, workspace_id, body, user)
     return _to_project_response(db, project, linked_source=linked_source)
 
 
@@ -250,23 +157,21 @@ def list_project_members(
 
     memberships = db.query(ProjectMembership).filter(ProjectMembership.project_id == project_id).all()
 
+    user_ids = [m.user_id for m in memberships]
+    users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+
     results = []
     for m in memberships:
-        u = db.query(User).filter(User.id == m.user_id).first()
+        u = users_by_id.get(m.user_id)
         results.append(ProjectMemberResponse(
             id=m.id,
             user_id=m.user_id,
             project_id=m.project_id,
-            role=m.role.value,
+            role=m.role.value if hasattr(m.role, "value") else str(m.role),
             user_email=u.email if u else None,
             user_display_name=u.display_name if u else None,
         ))
     return results
-
-
-class AddProjectMemberRequest(BaseModel):
-    user_id: uuid.UUID
-    role: str = "CONTRIBUTOR"
 
 
 @router.post("/projects/{project_id}/members", response_model=ProjectMemberResponse, status_code=201)
@@ -309,77 +214,12 @@ def add_or_update_project_member(
             detail=f"Invalid project role '{body.role}'. Allowed: LEAD, CONTRIBUTOR, REVIEWER",
         ) from exc
 
-    membership = (
-        db.query(ProjectMembership)
-        .filter(
-            ProjectMembership.project_id == project_id,
-            ProjectMembership.user_id == body.user_id,
-        )
-        .first()
-    )
-    if membership:
-        previous_role = membership.role
-        if previous_role == ProjectRole.LEAD and proj_role != ProjectRole.LEAD:
-            lead_count = (
-                db.query(ProjectMembership)
-                .filter(
-                    ProjectMembership.project_id == project_id,
-                    ProjectMembership.role == ProjectRole.LEAD,
-                )
-                .count()
-            )
-            if lead_count <= 1:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Cannot downgrade the last Project Lead",
-                )
-        membership.role = proj_role
-        create_audit_event(
-            db,
-            actor_id=user.id,
-            action="project.member_role_updated",
-            entity_type="project_membership",
-            entity_id=membership.id,
-            details={
-                "project_id": str(project_id),
-                "target_user_id": str(target_user.id),
-                "previous_role": previous_role.value,
-                "new_role": proj_role.value,
-            },
-            summary=f"Updated {target_user.display_name} project role from {previous_role.value} to {proj_role.value}",
-        )
-    else:
-        membership = ProjectMembership(
-            project_id=project_id,
-            user_id=body.user_id,
-            role=proj_role,
-        )
-        db.add(membership)
-        db.flush()
-        create_audit_event(
-            db,
-            actor_id=user.id,
-            action="project.member_added",
-            entity_type="project_membership",
-            entity_id=membership.id,
-            details={
-                "project_id": str(project_id),
-                "target_user_id": str(target_user.id),
-                "role": proj_role.value,
-            },
-            summary=f"Added {target_user.display_name} to project as {proj_role.value}",
-        )
-
-    db.commit()
-    db.refresh(membership)
-
-    return ProjectMemberResponse(
-        id=membership.id,
-        user_id=membership.user_id,
-        project_id=membership.project_id,
-        role=membership.role.value,
-        user_email=target_user.email,
-        user_display_name=target_user.display_name,
+    return service_add_or_update_project_member(
+        db,
+        project=project,
+        target_user=target_user,
+        role=proj_role,
+        actor_id=user.id,
     )
 
 
@@ -423,25 +263,29 @@ def remove_project_member(
                 detail="Cannot remove the last Project Lead",
             )
 
-    removed_role = membership.role.value
+    removed_role = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
     removed_id = membership.id
     target_user = db.query(User).filter(User.id == user_id).first()
     target_name = target_user.display_name if target_user else str(user_id)
 
-    db.delete(membership)
-    create_audit_event(
-        db,
-        actor_id=user.id,
-        action="project.member_removed",
-        entity_type="project_membership",
-        entity_id=removed_id,
-        details={
-            "project_id": str(project_id),
-            "target_user_id": str(user_id),
-            "removed_role": removed_role,
-        },
-        summary=f"Removed {target_name} ({removed_role}) from project",
-    )
-    db.commit()
-    return None
+    try:
+        db.delete(membership)
+        create_audit_event(
+            db,
+            actor_id=user.id,
+            action="project.member_removed",
+            entity_type="project_membership",
+            entity_id=removed_id,
+            details={
+                "project_id": str(project_id),
+                "target_user_id": str(user_id),
+                "removed_role": removed_role,
+            },
+            summary=f"Removed {target_name} ({removed_role}) from project",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
+    return None

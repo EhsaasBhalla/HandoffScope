@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
@@ -51,6 +53,16 @@ def create_user(db: Session, email: str, display_name: str, password: str) -> Us
         display_name=display_name,
         password_hash=hash_password(password),
     )
-    db.add(user)
-    db.flush()
+    try:
+        db.add(user)
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User with email '{email}' already exists",
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
     return user

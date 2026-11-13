@@ -32,6 +32,22 @@ _WARNING_FG = colors.HexColor("#8A5416")
 _ERROR_FG = colors.HexColor("#9A3A3A")
 
 
+def _sanitize_canvas_text(text: Any) -> str:
+    if text is None:
+        return ""
+    raw = str(text)
+    clean = (
+        raw.replace("—", "-")
+        .replace("–", "-")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("‘", "'")
+        .replace("’", "'")
+        .replace("…", "...")
+    )
+    return clean.encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _p(text: Any, style: ParagraphStyle, max_len: int = 1200) -> Paragraph:
     raw = str(text if text is not None else "—")
     if len(raw) > max_len:
@@ -49,7 +65,7 @@ def _draw_page_chrome(canvas, doc, *, title: str, footer_text: str) -> None:
     canvas.line(0.6 * inch, height - 0.48 * inch, width - 0.6 * inch, height - 0.48 * inch)
     canvas.setFont("Helvetica-Bold", 8)
     canvas.setFillColor(_TEXT_SECONDARY)
-    canvas.drawString(0.6 * inch, height - 0.40 * inch, title[:95])
+    canvas.drawString(0.6 * inch, height - 0.40 * inch, _sanitize_canvas_text(title)[:95])
 
     # Footer
     canvas.setStrokeColor(_BORDER)
@@ -57,7 +73,7 @@ def _draw_page_chrome(canvas, doc, *, title: str, footer_text: str) -> None:
     canvas.line(0.6 * inch, 0.55 * inch, width - 0.6 * inch, 0.55 * inch)
     canvas.setFont("Helvetica", 7.5)
     canvas.setFillColor(_TEXT_SECONDARY)
-    canvas.drawString(0.6 * inch, 0.40 * inch, footer_text[:100])
+    canvas.drawString(0.6 * inch, 0.40 * inch, _sanitize_canvas_text(footer_text)[:100])
     canvas.drawRightString(width - 0.6 * inch, 0.40 * inch, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -69,6 +85,10 @@ def render_handover_certificate_pdf(
 ) -> bytes:
     """Render a structured, tamper-evident PDF certificate from clearance-filtered data."""
     buf = io.BytesIO()
+    case_title_clean = str(projection.get("case_title") or "Handover Case")
+    project_name_clean = str(projection.get("project_name") or "Project")
+    version_num = projection.get("version_number", 1)
+
     doc = SimpleDocTemplate(
         buf,
         pagesize=LETTER,
@@ -76,7 +96,7 @@ def render_handover_certificate_pdf(
         rightMargin=0.6 * inch,
         topMargin=0.72 * inch,
         bottomMargin=0.72 * inch,
-        title=f"HandoffScope Handover Certificate - {projection['case_title']}",
+        title=f"HandoffScope Handover Certificate - {case_title_clean}",
         author="HandoffScope",
         invariant=1,
     )
@@ -153,8 +173,8 @@ def render_handover_certificate_pdf(
             ],
             [
                 _p(
-                    f"Project: {projection['project_name']}  |  Case #{projection['case_number']}: "
-                    f"{projection['case_title']}  |  Approved Version v{projection['version_number']}",
+                    f"Project: {project_name_clean}  |  Case #{projection.get('case_number', 0)}: "
+                    f"{case_title_clean}  |  Approved Version v{version_num}",
                     subtitle_style,
                 )
             ],
@@ -408,8 +428,8 @@ def render_handover_certificate_pdf(
         )
     )
 
-    header_title = f"HandoffScope Compliance Certificate — {projection['project_name']} (v{projection['version_number']})"
-    footer_meta = f"Key ID: {signer_info['signing_key_id']} | Scope: {projection['export_scope']}"
+    header_title = f"HandoffScope Compliance Certificate - {project_name_clean} (v{version_num})"
+    footer_meta = f"Key ID: {signer_info.get('signing_key_id', '')} | Scope: {projection.get('export_scope', 'RECIPIENT_SAFE')}"
     doc.build(
         story,
         onFirstPage=lambda c, d: _draw_page_chrome(c, d, title=header_title, footer_text=footer_meta),

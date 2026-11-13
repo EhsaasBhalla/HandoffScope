@@ -227,7 +227,7 @@ def run_import(job_id: str) -> None:
                 else:
                     records_unchanged += 1
 
-            # ── Index High-Signal Repository Tree Files (R3) ──
+            # ── Index High-Signal Repository Tree Files ──
             update_job_progress(db, job.id, current=4, total=4, message=f"Indexing repository files from {owner}/{repo}…")
             db.commit()
             tree_stats: dict = {}
@@ -292,7 +292,27 @@ def run_import(job_id: str) -> None:
         logger.exception("Unexpected error in run_import: %s", exc)
         try:
             db.rollback()
-            fail_job(db, uuid.UUID(job_id), error_message=str(exc)[:1000])
+            try:
+                job_uuid = uuid.UUID(job_id)
+                fail_job(db, job_uuid, error_message=str(exc)[:1000])
+            except Exception:
+                pass
+            if 'sync_run' in locals() and sync_run:
+                try:
+                    s_run = db.query(SyncRun).filter(SyncRun.id == sync_run.id).first()
+                    if s_run and s_run.status == SyncRunStatus.RUNNING:
+                        s_run.status = SyncRunStatus.FAILED
+                        s_run.completed_at = datetime.now(timezone.utc)
+                        s_run.error_message = str(exc)[:1000]
+                except Exception:
+                    pass
+            if 'source' in locals() and source:
+                try:
+                    s_src = db.query(ConnectedSource).filter(ConnectedSource.id == source.id).first()
+                    if s_src:
+                        s_src.connection_status = ConnectionStatus.ERROR
+                except Exception:
+                    pass
             db.commit()
         except Exception:
             pass
@@ -463,7 +483,7 @@ def _run_connector_import(*, db, job, source: ConnectedSource, sync_run: SyncRun
             },
         )
         db.commit()
-    except ConnectorError as exc:
+    except (ConnectorError, Exception) as exc:
         logger.warning("Connector import error on source %s: %s", source.id, exc)
         db.rollback()
         sync_obj = db.query(SyncRun).filter(SyncRun.id == sync_run.id).first()

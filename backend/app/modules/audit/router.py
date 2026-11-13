@@ -41,8 +41,31 @@ def get_audit_events(
     user=Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List audit events (paginated, optionally filtered)."""
-    from app.modules.workspaces.models import User
+    """List audit events (paginated, optionally filtered, tenant-isolated)."""
+    from app.modules.projects.models import Project
+    from app.modules.workspaces.models import User, WorkspaceMembership
+
+    user_ws_ids = [
+        wm.workspace_id
+        for wm in db.query(WorkspaceMembership.workspace_id)
+        .filter(WorkspaceMembership.user_id == user.id)
+        .all()
+    ]
+    if not user_ws_ids:
+        return []
+
+    if entity_type == "project" and entity_id:
+        proj = db.query(Project).filter(Project.id == entity_id, Project.workspace_id.in_(user_ws_ids)).first()
+        if not proj:
+            return []
+    elif entity_type == "handover_case" and entity_id:
+        from app.modules.handover_cases.models import HandoverCase
+        case = db.query(HandoverCase).join(Project, HandoverCase.project_id == Project.id).filter(
+            HandoverCase.id == entity_id,
+            Project.workspace_id.in_(user_ws_ids),
+        ).first()
+        if not case:
+            return []
 
     events = list_audit_events(
         db,

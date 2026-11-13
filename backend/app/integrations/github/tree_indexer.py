@@ -1,4 +1,4 @@
-"""Safe, bounded GitHub repository code-tree indexer (Round 3).
+"""Safe, bounded GitHub repository code-tree indexer.
 
 Indexes high-signal architecture, configuration, documentation, and entry-point source
 files into normalized SourceRecords while enforcing secret exclusions, binary guards,
