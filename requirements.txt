@@ -1,0 +1,3 @@
+# HandoffScope - Python Dependencies
+# Install backend requirements: pip install -r requirements.txt
+-r backend/requirements.txt
