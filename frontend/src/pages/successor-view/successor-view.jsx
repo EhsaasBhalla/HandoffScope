@@ -204,23 +204,6 @@ export default function SuccessorViewPage() {
     setExpandedPacks((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  if (casesLoading) {
-    return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>Loading successor transfers…</div>;
-  }
-
-  if (!myCases || myCases.length === 0) {
-    return (
-      <div className={styles.emptyState}>
-        <UserCheck size={48} style={{ color: 'var(--color-text-muted)' }} />
-        <h3>No Handover Transfers Assigned</h3>
-        <p>When a team lead shares an approved handover version or assigns you a Transfer Pack, it will appear here.</p>
-        <Link to="/cases" style={{ marginTop: '1rem', color: 'var(--color-accent-text)' }}>
-          Browse Project Handover Cases <ArrowRight size={14} style={{ display: 'inline' }} />
-        </Link>
-      </div>
-    );
-  }
-
   const v = continuationView;
 
   const claimDelegationMap = useMemo(() => {
@@ -237,6 +220,23 @@ export default function SuccessorViewPage() {
     if (!Array.isArray(v?.eligible_delegates)) return [];
     return v.eligible_delegates.filter((m) => m.user_id !== user?.id);
   }, [v?.eligible_delegates, user?.id]);
+
+  if (casesLoading) {
+    return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>Loading successor transfers…</div>;
+  }
+
+  if (!myCases || myCases.length === 0) {
+    return (
+      <div className={styles.emptyState}>
+        <UserCheck size={48} style={{ color: 'var(--color-text-muted)' }} />
+        <h3>No Handover Transfers Assigned</h3>
+        <p>When a team lead shares an approved handover version or assigns you a Transfer Pack, it will appear here.</p>
+        <Link to="/cases" style={{ marginTop: '1rem', color: 'var(--color-accent-text)' }}>
+          Browse Project Handover Cases <ArrowRight size={14} style={{ display: 'inline' }} />
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>
